@@ -271,12 +271,12 @@ compareForm.addEventListener('submit', async (e) => {
             const userRank = userIndex + 1; // 1 = most played
             const communityRank = communityRankMap.get(userTrack.name.toLowerCase());
 
-            const numericCommunityRank = communityRank || 51;
+            const numericCommunityRank = communityRank || 101;
 
             return {
                 name: userTrack.name,
                 userRank: userRank,
-                communityRank: communityRank || '>50',
+                communityRank: communityRank || '>100',
                 playcount: userTrack.playcount,
                 differential: numericCommunityRank - userRank,
                 url: userTrack.url,

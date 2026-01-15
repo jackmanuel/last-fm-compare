@@ -92,7 +92,7 @@ app.get('/api/artist-top-tracks', async (req, res) => {
     try {
         const data = await lastFmRequest('artist.getTopTracks', {
             artist: artist,
-            limit: 50
+            limit: 100
         });
         res.json(data);
     } catch (error) {
