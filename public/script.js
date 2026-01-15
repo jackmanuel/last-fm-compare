@@ -14,6 +14,7 @@ const userStepDiv = document.getElementById('step1-user');
 // Filter UI Logic
 const filterCheckbox = document.getElementById('filterEnabled');
 const filterThresholdInput = document.getElementById('filterThreshold');
+const artistInfoDiv = document.getElementById('artistInfo');
 
 if (filterCheckbox && filterThresholdInput) {
     // Toggle input state
@@ -202,6 +203,8 @@ compareForm.addEventListener('submit', async (e) => {
     progressStats.style.display = 'none';
 
     try {
+        let dataArtistName = "";
+
         // 1. Filter user tracks for the artist
         const userArtistTracks = cachedUserTracks.filter(track => {
             const trackArtist = track.artist['#text'] || track.artist.name;
@@ -214,11 +217,26 @@ compareForm.addEventListener('submit', async (e) => {
             return;
         }
 
-        // 2. Fetch Community Top Tracks
-        const communityResponse = await fetch(`/api/artist-top-tracks?artist=${encodeURIComponent(artist)}`);
+        // 2. Fetch Community Top Tracks & Artist Info (Parallel)
+        const [communityResponse, artistInfoData] = await Promise.all([
+            fetch(`/api/artist-top-tracks?artist=${encodeURIComponent(artist)}`),
+            fetchArtistInfo(artist)
+        ]);
+
         if (!communityResponse.ok) throw new Error('Failed to fetch community data');
         const communityData = await communityResponse.json();
         const communityTracks = communityData.toptracks?.track || [];
+
+        // Display Artist Info Immediately (if found)
+        if (artistInfoData) {
+            displayArtistInfo(artistInfoData);
+            // Update the display artist name to the official one
+            dataArtistName = artistInfoData.name;
+        } else {
+            // Fallback if API fails
+            dataArtistName = artist;
+            artistInfoDiv.classList.add('hidden');
+        }
 
         // 3. Process and Compare: AGGREGATION & RANKING
         const communityRankMap = new Map();
@@ -271,7 +289,7 @@ compareForm.addEventListener('submit', async (e) => {
 
         // Store in global state
         globalComparisonData = {
-            artist: artist,
+            artist: dataArtistName,
             tracks: comparison
         };
 
@@ -283,6 +301,83 @@ compareForm.addEventListener('submit', async (e) => {
         showError(err.message);
     }
 });
+
+async function fetchArtistInfo(artist) {
+    try {
+        const username = validatedUsername; // Can be null if not validated, but here it should be
+        let url = `/api/artist-info?artist=${encodeURIComponent(artist)}`;
+        if (username) {
+            url += `&username=${encodeURIComponent(username)}`;
+        }
+
+        const response = await fetch(url);
+        if (!response.ok) return null;
+        const data = await response.json();
+        return data.artist;
+    } catch (e) {
+        console.warn("Failed to fetch artist info", e);
+        return null; // Fail silently, just don't show info
+    }
+}
+
+function displayArtistInfo(artistData) {
+    if (!artistData) {
+        artistInfoDiv.classList.add('hidden');
+        return;
+    }
+
+    const name = artistData.name;
+    const url = artistData.url;
+    // Image: preferably mega, then extralarge
+    const image = artistData.image ? (artistData.image.find(img => img.size === 'mega') || artistData.image.find(img => img.size === 'extralarge') || artistData.image[0])['#text'] : '/default_pfp.png';
+    const listeners = formatBigNumber(artistData.stats.listeners);
+    const playcount = formatBigNumber(artistData.stats.playcount);
+    const userPlaycount = artistData.stats.userplaycount ? parseInt(artistData.stats.userplaycount).toLocaleString() : '0';
+
+    artistInfoDiv.innerHTML = `
+        <img src="${image}" alt="${name}" class="artist-header-image" onerror="this.onerror=null;this.src='/default_pfp.png';">
+        <div class="artist-details">
+            <h2 class="artist-name">
+                <a href="${url}" target="_blank" style="text-decoration: none; color: inherit;">${name}</a>
+            </h2>
+            <div class="artist-stats">
+                <div class="stat-item">
+                    <span class="stat-value">${listeners}</span>
+                    <span class="stat-label">Listeners</span>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-value">${playcount}</span>
+                    <span class="stat-label">Total Scrobbles</span>
+                </div>
+                 <div class="stat-item">
+                    <span class="stat-value">${userPlaycount}</span>
+                    <span class="stat-label">Your Scrobbles</span>
+                </div>
+            </div>
+        </div>
+    `;
+    artistInfoDiv.classList.remove('hidden');
+}
+
+function formatBigNumber(numStr) {
+    const num = parseInt(numStr);
+    if (isNaN(num)) return '0';
+
+    if (num < 1000) {
+        return num.toString();
+    } else if (num < 1000000) {
+        // < 1 million: Round to nearest thousand, use 'k'
+        // e.g. 453200 -> 453k
+        return Math.round(num / 1000) + 'k';
+    } else if (num < 1000000000) {
+        // 1M - 1B: Round to nearest tenth of a million
+        // e.g. 1,340,243 -> 1.3 million
+        return (num / 1000000).toFixed(1) + ' million';
+    } else {
+        // > 1B: Round to nearest tenth of a billion
+        return (num / 1000000000).toFixed(1) + ' billion';
+    }
+}
 
 function applyFilterAndDisplay() {
     if (!globalComparisonData) return;
@@ -306,6 +401,7 @@ function updateProgress(currentPage, totalPages, bar, text, pagesText) {
 }
 
 function displayUserInfo(user) {
+    if (!user) return;
     const registeredDate = new Date(user.registered * 1000);
     const registeredYear = registeredDate.getFullYear();
 
@@ -342,7 +438,10 @@ function resetUI() {
     userInfoDiv.classList.add('hidden');
     stepLoadHistoryDiv.classList.add('hidden');
     step2Div.classList.add('hidden');
+    stepLoadHistoryDiv.classList.add('hidden');
+    step2Div.classList.add('hidden');
     results.classList.add('hidden');
+    artistInfoDiv.classList.add('hidden');
 }
 
 function showError(msg) {

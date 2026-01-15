@@ -104,6 +104,31 @@ app.get('/api/artist-top-tracks', async (req, res) => {
     }
 });
 
+// Artist Info Endpoint (Proxy for artist.getInfo)
+app.get('/api/artist-info', async (req, res) => {
+    const { artist, username } = req.query;
+
+    if (!artist) {
+        return res.status(400).json({ error: 'Artist is required' });
+    }
+
+    try {
+        const params = { artist };
+        if (username) {
+            params.username = username;
+        }
+
+        const data = await lastFmRequest('artist.getInfo', params);
+        res.json(data);
+    } catch (error) {
+        console.error('Artist Info Error:', error.message);
+        res.status(500).json({
+            error: 'Failed to fetch artist info',
+            details: error.response ? error.response.data.message : error.message
+        });
+    }
+});
+
 app.listen(PORT, () => {
     console.log(`Server running at http://localhost:${PORT}`);
 });
