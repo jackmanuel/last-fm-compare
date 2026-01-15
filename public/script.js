@@ -311,7 +311,7 @@ function displayUserInfo(user) {
 
     userInfoDiv.innerHTML = `
         <div class="user-info-content">
-            <img src="${user.image}" alt="${user.username}" class="user-pfp">
+            <img src="${user.image}" alt="${user.username}" class="user-pfp" onerror="this.onerror=null;this.src='/default_pfp.png';">
             <div class="user-details">
                 <h3>${user.username}</h3>
                 ${user.realname ? `<div class="user-realname">${user.realname}</div>` : ''}
@@ -366,10 +366,10 @@ function displayResults(data) {
         else if (track.differential < -10) scoreClass = 'score-low';
 
         // Image handling
-        const imgUrl = track.image || 'https://lastfm.freetls.fastly.net/i/u/64s/2a96cbd8b46e442fc41c2b86b821562f.png';
+        const imgUrl = track.image || '/default_pfp.png';
 
         card.innerHTML = `
-            <img src="${imgUrl}" alt="${track.name}" class="track-image">
+            <img src="${imgUrl}" alt="${track.name}" class="track-image" onerror="this.onerror=null;this.src='/default_pfp.png';">
             <div class="track-info">
                 <a href="${track.url}" target="_blank" class="track-name">${track.name}</a>
                 <div class="track-meta">

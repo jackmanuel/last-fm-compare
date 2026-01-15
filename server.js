@@ -42,7 +42,7 @@ app.get('/api/user-info', async (req, res) => {
             realname: user.realname,
             playcount: user.playcount,
             registered: user.registered.unixtime, // sending raw timestamp, will format on frontend
-            image: user.image[2]['#text'], /* Large image */
+            image: user.image[2]['#text'] || '/default_pfp.png', /* Large image */
             url: user.url
         };
 
