@@ -350,39 +350,111 @@ function showError(msg) {
     errorDiv.classList.remove('hidden');
 }
 
+// Toggle View Logic
+let isColumnView = true;
+const viewToggleBtn = document.getElementById('viewToggleBtn');
+
+viewToggleBtn.addEventListener('click', () => {
+    isColumnView = !isColumnView;
+    viewToggleBtn.textContent = isColumnView ? 'Show complete list' : 'Show 3 columns';
+    applyFilterAndDisplay();
+});
+
 function displayResults(data) {
     resultHeader.textContent = `Unusual favourites for ${data.artist}`;
     results.classList.remove('hidden');
 
     tracksList.innerHTML = '';
 
-    data.tracks.forEach(track => {
-        const card = document.createElement('div');
-        card.className = 'track-card';
+    if (isColumnView) {
+        tracksList.className = 'columns-grid';
+        renderColumnView(data.tracks);
+    } else {
+        tracksList.className = 'tracks-grid';
+        renderListView(data.tracks);
+    }
+}
 
-        // Calculate score class
-        let scoreClass = 'score-neutral';
-        if (track.differential > 10) scoreClass = 'score-high';
-        else if (track.differential < -10) scoreClass = 'score-low';
-
-        // Image handling
-        const imgUrl = track.image || '/default_pfp.png';
-
-        card.innerHTML = `
-            <img src="${imgUrl}" alt="${track.name}" class="track-image" onerror="this.onerror=null;this.src='/default_pfp.png';">
-            <div class="track-info">
-                <a href="${track.url}" target="_blank" class="track-name">${track.name}</a>
-                <div class="track-meta">
-                    Rankings: #<strong>${track.userRank}</strong> (You) vs #<strong>${track.communityRank}</strong> (Community)
-                    <br>
-                    Scrobbles: ${track.playcount}
-                </div>
-            </div>
-            <div class="score-badge ${scoreClass}">
-                ${track.differential > 0 ? '+' : ''}${track.differential}
-            </div>
-        `;
-
-        tracksList.appendChild(card);
+function renderListView(tracks) {
+    tracks.forEach(track => {
+        tracksList.appendChild(createTrackCard(track, false));
     });
+}
+
+function renderColumnView(tracks) {
+    // 1. Positive Differential (Top 10)
+    // Already sorted by differential desc in global logic, but let's filter
+    const positiveTracks = tracks
+        .filter(t => t.differential > 0)
+        .slice(0, 10);
+
+    // 2. Neutral (Closest to 0) (Top 10)
+    const neutralTracks = [...tracks]
+        .sort((a, b) => Math.abs(a.differential) - Math.abs(b.differential))
+        .slice(0, 10);
+
+    // 3. Negative Differential (Top 10 ranking wise? i.e. most negative?)
+    // User said: "top 10 highest negative differential songs".
+    // Assuming this means the ones with the biggest negative number (e.g. -50).
+    const negativeTracks = tracks
+        .filter(t => t.differential < 0)
+        .sort((a, b) => a.differential - b.differential) // Ascending ( -10 before -1 )
+        .slice(0, 10);
+
+    createColumn("Top Positive (+)", "column-positive", positiveTracks, "You like more than the community");
+    createColumn("Neutral (~0)", "column-neutral", neutralTracks, "&nbsp;");
+    createColumn("Top Negative (-)", "column-negative", negativeTracks, "The community likes more than you");
+}
+
+function createColumn(title, className, tracks, subtext = null) {
+    const colDiv = document.createElement('div');
+    colDiv.className = `column ${className}`;
+
+    const header = document.createElement('div');
+    header.className = 'column-header';
+    header.textContent = title;
+    colDiv.appendChild(header);
+
+    if (subtext) {
+        const sub = document.createElement('div');
+        sub.className = 'column-subtext';
+        sub.innerHTML = subtext;
+        colDiv.appendChild(sub);
+    }
+
+    tracks.forEach(track => {
+        colDiv.appendChild(createTrackCard(track, true));
+    });
+
+    tracksList.appendChild(colDiv);
+}
+
+function createTrackCard(track, compact = false) {
+    const card = document.createElement('div');
+    card.className = 'track-card';
+
+    // Calculate score class
+    let scoreClass = 'score-neutral';
+    if (track.differential > 10) scoreClass = 'score-high';
+    else if (track.differential < -10) scoreClass = 'score-low';
+
+    const imgUrl = track.image || '/default_pfp.png';
+
+    const metaContent = compact
+        ? `#<strong>${track.userRank}</strong> vs #<strong>${track.communityRank}</strong> | ${track.playcount} scrobbles`
+        : `Rankings: #<strong>${track.userRank}</strong> (You) vs #<strong>${track.communityRank}</strong> (Community)<br>Scrobbles: ${track.playcount}`;
+
+    card.innerHTML = `
+        <img src="${imgUrl}" alt="${track.name}" class="track-image" onerror="this.onerror=null;this.src='/default_pfp.png';">
+        <div class="track-info">
+            <a href="${track.url}" target="_blank" class="track-name" title="${track.name}">${track.name}</a>
+            <div class="track-meta">
+                ${metaContent}
+            </div>
+        </div>
+        <div class="score-badge ${scoreClass}">
+            ${track.differential > 0 ? '+' : ''}${track.differential}
+        </div>
+    `;
+    return card;
 }
