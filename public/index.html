@@ -13,23 +13,37 @@
     <div class="container">
         <header>
             <h1>Last.fm Comparator</h1>
-            <p>Discover your unusual favorites.</p>
+            <p>Discover your unusual favourites.</p>
         </header>
 
         <main>
-            <form id="compareForm">
-                <div class="input-group">
-                    <label for="username">Last.fm Username</label>
-                    <input type="text" id="username" placeholder="e.g. rj" value="JackMan3141" required>
-                </div>
+            <div id="step1-user">
+                <form id="userForm">
+                    <div class="input-group">
+                        <label for="username">Last.fm Username</label>
+                        <div class="input-row">
+                            <input type="text" id="username" placeholder="e.g. rj" required>
+                            <button type="submit" id="checkUserBtn">Check User</button>
+                        </div>
+                    </div>
+                </form>
+            </div>
 
-                <div class="input-group">
-                    <label for="artist">Artist Name</label>
-                    <input type="text" id="artist" placeholder="e.g. Radiohead" required>
-                </div>
+            <div id="userInfo" class="user-card hidden">
+                <!-- User info injected here -->
+            </div>
 
-                <button type="submit">Compare</button>
-            </form>
+            <div id="step2-compare" class="hidden">
+                <form id="compareForm">
+                    <div class="input-group">
+                        <label for="artist">Artist Name</label>
+                        <div class="input-row">
+                            <input type="text" id="artist" placeholder="e.g. Radiohead" required>
+                            <button type="submit">Fetch & Compare</button>
+                        </div>
+                    </div>
+                </form>
+            </div>
 
             <div id="loading" class="hidden">Parsing scrobbles...</div>
             <div id="error" class="hidden"></div>

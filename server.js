@@ -24,6 +24,39 @@ async function lastFmRequest(method, params) {
     return response.data;
 }
 
+// User Info Endpoint
+app.get('/api/user-info', async (req, res) => {
+    const { username } = req.query;
+
+    if (!username) {
+        return res.status(400).json({ error: 'Username is required' });
+    }
+
+    try {
+        const data = await lastFmRequest('user.getInfo', { user: username });
+        const user = data.user;
+
+        // Transform the response for our frontend
+        const userInfo = {
+            username: user.name,
+            realname: user.realname,
+            playcount: user.playcount,
+            registered: user.registered.unixtime, // sending raw timestamp, will format on frontend
+            image: user.image[2]['#text'], /* Large image */
+            url: user.url
+        };
+
+        res.json(userInfo);
+
+    } catch (error) {
+        console.error('User Info Error:', error.message);
+        res.status(500).json({
+            error: 'Failed to fetch user info',
+            details: error.response ? error.response.data.message : error.message
+        });
+    }
+});
+
 app.get('/api/compare/artist', async (req, res) => {
     const { username, artist } = req.query;
 
