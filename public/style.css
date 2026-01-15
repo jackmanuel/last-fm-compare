@@ -307,6 +307,11 @@ button:hover {
     color: #f87171;
 }
 
+.score-exact {
+    background-color: rgba(59, 130, 246, 0.1);
+    color: #60a5fa;
+}
+
 /* Progress Bar */
 .progress-container {
     background: var(--card-bg);
@@ -510,4 +515,25 @@ button:hover {
         gap: 1rem;
         align-items: center;
     }
+}
+
+/* User Stat Highlight */
+.user-stat-highlight {
+    background-color: rgba(186, 0, 0, 0.1);
+    /* Subtle red background matching accent */
+    padding: 0.5rem 1rem;
+    border-radius: 8px;
+    border: 1px solid rgba(186, 0, 0, 0.3);
+    margin: -0.5rem 0;
+    /* Offset padding to align baseline roughly */
+}
+
+.user-stat-highlight .stat-value {
+    color: var(--accent);
+    text-shadow: 0 0 10px rgba(186, 0, 0, 0.2);
+}
+
+.user-stat-highlight .stat-label {
+    color: var(--text-primary);
+    opacity: 0.9;
 }

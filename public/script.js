@@ -334,6 +334,9 @@ function displayArtistInfo(artistData) {
     const playcount = formatBigNumber(artistData.stats.playcount);
     const userPlaycount = artistData.stats.userplaycount ? parseInt(artistData.stats.userplaycount).toLocaleString() : '0';
 
+    // Dynamic label for user scrobbles
+    const userLabel = validatedUsername ? `${validatedUsername}'s Scrobbles` : 'Your Scrobbles';
+
     artistInfoDiv.innerHTML = `
         <img src="${image}" alt="${name}" class="artist-header-image" onerror="this.onerror=null;this.src='/default_pfp.png';">
         <div class="artist-details">
@@ -349,9 +352,9 @@ function displayArtistInfo(artistData) {
                     <span class="stat-value">${playcount}</span>
                     <span class="stat-label">Total Scrobbles</span>
                 </div>
-                 <div class="stat-item">
+                 <div class="stat-item user-stat-highlight">
                     <span class="stat-value">${userPlaycount}</span>
-                    <span class="stat-label">Your Scrobbles</span>
+                    <span class="stat-label">${userLabel}</span>
                 </div>
             </div>
         </div>
@@ -370,8 +373,12 @@ function formatBigNumber(numStr) {
         // e.g. 453200 -> 453k
         return Math.round(num / 1000) + 'k';
     } else if (num < 1000000000) {
-        // 1M - 1B: Round to nearest tenth of a million
-        // e.g. 1,340,243 -> 1.3 million
+        // 1M - 1B
+        if (num >= 100000000) {
+            // 100M - 999M: Round to nearest million
+            return Math.round(num / 1000000) + ' million';
+        }
+        // 1M - 99M: Round to nearest tenth of a million
         return (num / 1000000).toFixed(1) + ' million';
     } else {
         // > 1B: Round to nearest tenth of a billion
@@ -534,7 +541,8 @@ function createTrackCard(track, compact = false) {
 
     // Calculate score class
     let scoreClass = 'score-neutral';
-    if (track.differential > 10) scoreClass = 'score-high';
+    if (track.differential === 0) scoreClass = 'score-exact';
+    else if (track.differential > 10) scoreClass = 'score-high';
     else if (track.differential < -10) scoreClass = 'score-low';
 
     const imgUrl = track.image || '/default_pfp.png';
