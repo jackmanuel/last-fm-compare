@@ -37,21 +37,21 @@ app.get('/api/compare/artist', async (req, res) => {
 
     try {
         // 1. Fetch User's tracks for the artist
-        // user.getArtistTracks is deprecated.
-        // limit=1000 to cast a wide net for "unusual favorites"
-        const userTopTracksData = await lastFmRequest('user.getTopTracks', {
+        // user.getRecentTracks as requested (replacing getTopTracks)
+        // limit=100 for testing purposes
+        const userRecentTracksData = await lastFmRequest('user.getRecentTracks', {
             user: username,
-            limit: 1000,
-            period: 'overall'
+            limit: 100
         });
 
         // Filter for the specific artist
-        const allUserTracks = userTopTracksData.toptracks?.track || [];
+        // Note: recenttracks structure is different
+        const allUserTracks = userRecentTracksData.recenttracks?.track || [];
         const userTracks = allUserTracks.filter(track =>
-            track.artist.name.toLowerCase() === artist.toLowerCase()
+            track.artist['#text'].toLowerCase() === artist.toLowerCase() // artist is an object in recenttracks
         );
 
-        console.log(`Found ${userTracks.length} tracks for artist ${artist} in user's top 1000.`);
+        console.log(`Found ${userTracks.length} tracks for artist ${artist} in user's last 100 scrobbles.`);
 
         // 2. Fetch Community's top tracks for the artist
         // artist.getTopTracks
@@ -64,7 +64,7 @@ app.get('/api/compare/artist', async (req, res) => {
         const communityTracks = communityTracksData.toptracks?.track || [];
 
         if (userTracks.length === 0) {
-            return res.json({ message: "User hasn't listened to this artist enough or artist not found." });
+            return res.json({ message: "User hasn't listened to this artist recently or artist not found." });
         }
 
         // 3. Process and Compare
@@ -75,24 +75,16 @@ app.get('/api/compare/artist', async (req, res) => {
         });
 
         const comparison = userTracks.map((userTrack, userIndex) => {
-            const userRank = userIndex + 1;
+            const userRank = userIndex + 1; // Rank in "Recency" (1 = most recent)
             const communityRank = communityRankMap.get(userTrack.name.toLowerCase()) || 51; // 51 if not in top 50
 
-            // Differential:
-            // Positive = User likes it MORE than community (User rank 1 < Community rank 50) -> Comm - User = 49
-            // Negative = User likes it LESS than community (User rank 50 > Community rank 1) -> Comm - User = -49
-            // However, intuitive score: "Unusual Favorite" score.
-            // High score = Unusual favorite.
-            // Let's use: Community Rank - User Rank.
-            // if song is Comm #50 and User #1, score = 49 (Highly unusual favorite)
-            // if song is Comm #1 and User #1, score = 0 (Consensus favorite)
-            // if song is Comm #1 and User #50, score = -49 (Unusual dislike/apathy)
+            // Differential calculation logic preserved but meaning changes to "Recency vs Popularity"
 
             return {
                 name: userTrack.name,
                 userRank: userRank,
                 communityRank: communityRank > 50 ? '>50' : communityRank,
-                playcount: parseInt(userTrack.playcount, 10),
+                playcount: 1, // Recent tracks don't have playcount, implies 1 listen
                 differential: communityRank - userRank,
                 url: userTrack.url,
                 image: userTrack.image ? userTrack.image[1]['#text'] : null // medium size
