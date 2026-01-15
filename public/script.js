@@ -16,9 +16,16 @@ const filterCheckbox = document.getElementById('filterEnabled');
 const filterThresholdInput = document.getElementById('filterThreshold');
 
 if (filterCheckbox && filterThresholdInput) {
+    // Toggle input state
     filterCheckbox.addEventListener('change', () => {
         filterThresholdInput.disabled = !filterCheckbox.checked;
         filterThresholdInput.parentElement.style.opacity = filterCheckbox.checked ? '1' : '0.5';
+        applyFilterAndDisplay();
+    });
+
+    // Live update on number change
+    filterThresholdInput.addEventListener('input', () => {
+        applyFilterAndDisplay();
     });
 }
 
@@ -27,6 +34,7 @@ if (filterCheckbox && filterThresholdInput) {
 // State
 let validatedUsername = null;
 let cachedUserTracks = [];
+let globalComparisonData = null; // Store full comparison results
 
 // Step 1: Check User
 userForm.addEventListener('submit', async (e) => {
@@ -38,6 +46,7 @@ userForm.addEventListener('submit', async (e) => {
 
     // Reset UI
     resetUI();
+    globalComparisonData = null; // Clear old data
 
     // Show simple loading for user info
     const loadingDiv = document.getElementById('loading');
@@ -235,13 +244,8 @@ compareForm.addEventListener('submit', async (e) => {
             }
         });
 
-        // Read Filter Settings
-        const filterEnabled = document.getElementById('filterEnabled').checked;
-        const filterThreshold = parseInt(document.getElementById('filterThreshold').value) || 5;
-
-        // Convert to array, filter low plays if enabled, and sort by playcount (User Rank)
-        const aggregatedTracks = Array.from(trackMap.values())
-            .filter(t => !filterEnabled || t.playcount >= filterThreshold);
+        // Convert to array and sort by playcount (User Rank)
+        const aggregatedTracks = Array.from(trackMap.values());
         aggregatedTracks.sort((a, b) => b.playcount - a.playcount);
 
         // Calculate Differentials
@@ -265,17 +269,34 @@ compareForm.addEventListener('submit', async (e) => {
         // Sort by differential descending
         comparison.sort((a, b) => b.differential - a.differential);
 
-        loadingDiv.classList.add('hidden');
-        displayResults({
+        // Store in global state
+        globalComparisonData = {
             artist: artist,
             tracks: comparison
-        });
+        };
+
+        loadingDiv.classList.add('hidden');
+        applyFilterAndDisplay();
 
     } catch (err) {
         loadingDiv.classList.add('hidden');
         showError(err.message);
     }
 });
+
+function applyFilterAndDisplay() {
+    if (!globalComparisonData) return;
+
+    const filterEnabled = document.getElementById('filterEnabled').checked;
+    const filterThreshold = parseInt(document.getElementById('filterThreshold').value) || 5;
+
+    const filteredTracks = globalComparisonData.tracks.filter(t => !filterEnabled || t.playcount >= filterThreshold);
+
+    displayResults({
+        artist: globalComparisonData.artist,
+        tracks: filteredTracks
+    });
+}
 
 function updateProgress(currentPage, totalPages, bar, text, pagesText) {
     const percentage = Math.round((currentPage / totalPages) * 100);
@@ -330,8 +351,10 @@ function showError(msg) {
 }
 
 function displayResults(data) {
-    resultHeader.textContent = `Unusual favorites for ${data.artist}`;
+    resultHeader.textContent = `Unusual favourites for ${data.artist}`;
     results.classList.remove('hidden');
+
+    tracksList.innerHTML = '';
 
     data.tracks.forEach(track => {
         const card = document.createElement('div');

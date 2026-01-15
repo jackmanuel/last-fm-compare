@@ -33,11 +33,9 @@
                 <!-- User info injected here -->
             </div>
 
-            <!-- New Step: Load History -->
             <div id="step-load-history" class="hidden" style="text-align: center; margin: 20px 0;">
                 <button id="loadHistoryBtn" class="primary-btn">Load Scrobble History</button>
-                <p class="hint-text">This will fetch all your recent tracks once so you can compare multiple artists
-                    quickly.</p>
+                <p class="hint-text">This will fetch all of your scrobbles. This may take a few minutes.</p>
             </div>
 
             <div id="step2-compare" class="hidden">
@@ -50,17 +48,6 @@
                         </div>
                     </div>
 
-                    <!-- Filter Options -->
-                    <div class="filter-section">
-                        <div class="filter-row">
-                            <input type="checkbox" id="filterEnabled" checked>
-                            <label for="filterEnabled" class="inline-label">Hide low scrobbles</label>
-                        </div>
-                        <div class="filter-row" id="thresholdRow">
-                            <label for="filterThreshold" class="inline-label">Min scrobbles:</label>
-                            <input type="number" id="filterThreshold" value="5" min="1" max="100">
-                        </div>
-                    </div>
                 </form>
             </div>
 
@@ -78,6 +65,19 @@
 
             <div id="results" class="hidden">
                 <h2 id="resultHeader"></h2>
+
+                <!-- Filter Options -->
+                <div class="filter-section" style="justify-content: flex-start; border-top: none; margin-bottom: 2rem;">
+                    <div class="filter-row">
+                        <input type="checkbox" id="filterEnabled" checked>
+                        <label for="filterEnabled" class="inline-label">Hide low scrobbles</label>
+                    </div>
+                    <div class="filter-row" id="thresholdRow">
+                        <label for="filterThreshold" class="inline-label">Min scrobbles:</label>
+                        <input type="number" id="filterThreshold" value="5" min="1" max="100">
+                    </div>
+                </div>
+
                 <div class="legend">
                     <span class="badge high">Unusual Favourite</span>
                     <span class="badge low">Community Favourite</span>
