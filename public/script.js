@@ -6,11 +6,27 @@ const errorDiv = document.getElementById('error');
 const tracksList = document.getElementById('tracksList');
 const resultHeader = document.getElementById('resultHeader');
 const userInfoDiv = document.getElementById('userInfo');
+const stepLoadHistoryDiv = document.getElementById('step-load-history');
+const loadHistoryBtn = document.getElementById('loadHistoryBtn');
 const step2Div = document.getElementById('step2-compare');
 const userStepDiv = document.getElementById('step1-user');
 
+// Filter UI Logic
+const filterCheckbox = document.getElementById('filterEnabled');
+const filterThresholdInput = document.getElementById('filterThreshold');
+
+if (filterCheckbox && filterThresholdInput) {
+    filterCheckbox.addEventListener('change', () => {
+        filterThresholdInput.disabled = !filterCheckbox.checked;
+        filterThresholdInput.parentElement.style.opacity = filterCheckbox.checked ? '1' : '0.5';
+    });
+}
+
+// State
+
 // State
 let validatedUsername = null;
+let cachedUserTracks = [];
 
 // Step 1: Check User
 userForm.addEventListener('submit', async (e) => {
@@ -22,6 +38,8 @@ userForm.addEventListener('submit', async (e) => {
 
     // Reset UI
     resetUI();
+
+    // Show simple loading for user info
     const loadingDiv = document.getElementById('loading');
     const statusText = document.querySelector('.progress-status');
     const progressBarContainer = document.querySelector('.progress-bar-bg');
@@ -30,7 +48,7 @@ userForm.addEventListener('submit', async (e) => {
     loadingDiv.classList.remove('hidden');
     statusText.textContent = "Fetching user info...";
 
-    // Hide progress bar elements for simple request
+    // Hide progress bar elements during user lookup
     progressBarContainer.style.display = 'none';
     progressStats.style.display = 'none';
 
@@ -39,9 +57,6 @@ userForm.addEventListener('submit', async (e) => {
         const data = await response.json();
 
         loadingDiv.classList.add('hidden');
-        // Restore progress bar visibility for later
-        progressBarContainer.style.display = 'block';
-        progressStats.style.display = 'flex';
 
         if (!response.ok) {
             throw new Error(data.error || data.details || 'User not found');
@@ -49,36 +64,30 @@ userForm.addEventListener('submit', async (e) => {
 
         displayUserInfo(data);
         validatedUsername = data.username; // Store corrected username case
-        // Show next step
-        step2Div.classList.remove('hidden');
+
+        // Show Load History Step
+        stepLoadHistoryDiv.classList.remove('hidden');
         userStepDiv.classList.add('hidden');
 
     } catch (err) {
         loadingDiv.classList.add('hidden');
-        // Restore visibility
-        progressBarContainer.style.display = 'block';
-        progressStats.style.display = 'flex';
         showError(err.message);
     }
 });
 
-// Step 2: Compare
-compareForm.addEventListener('submit', async (e) => {
-    e.preventDefault();
+// Step 2: Load History
+loadHistoryBtn.addEventListener('click', async () => {
+    if (!validatedUsername) return;
 
-    if (!validatedUsername) {
-        showError("Please verify a user first.");
-        return;
-    }
+    // Reset State
+    cachedUserTracks = [];
+    stepLoadHistoryDiv.classList.add('hidden');
 
-    const artist = document.getElementById('artist').value.trim();
+    await fetchAllScrobbles();
+});
 
-    // Reset Results UI
-    results.classList.add('hidden');
-    errorDiv.classList.add('hidden');
-    tracksList.innerHTML = '';
-
-    // Show Progress Bar
+async function fetchAllScrobbles() {
+    // Show Progress UI
     const loadingDiv = document.getElementById('loading');
     const progressBar = document.getElementById('progressBar');
     const progressText = document.getElementById('progressText');
@@ -87,7 +96,7 @@ compareForm.addEventListener('submit', async (e) => {
 
     loadingDiv.classList.remove('hidden');
 
-    // Ensure visibility (in case Step 1 hid them)
+    // Restore progress bar visibility
     const progressBarContainer = document.querySelector('.progress-bar-bg');
     const progressStatsContainer = document.querySelector('.progress-stats');
     if (progressBarContainer) progressBarContainer.style.display = 'block';
@@ -96,10 +105,8 @@ compareForm.addEventListener('submit', async (e) => {
     progressBar.style.width = '0%';
     progressText.textContent = '0%';
     pagesText.textContent = 'Initializing...';
-    statusText.textContent = 'Fetching recent tracks...';
+    statusText.textContent = 'Fetching full listening history...';
 
-    // Fetching Logic
-    const allUserTracks = [];
     const LIMIT = 1000; // Max tracks per page
     const DELAY_MS = 1000; // Rate limit: 1 request per second
 
@@ -113,11 +120,10 @@ compareForm.addEventListener('submit', async (e) => {
         if (!recentTracksIdx) throw new Error('Invalid response from Last.fm');
 
         const totalPages = parseInt(recentTracksIdx['@attr'].totalPages);
-        const totalTracks = parseInt(recentTracksIdx['@attr'].total);
 
         // Add page 1 tracks
         if (Array.isArray(recentTracksIdx.track)) {
-            allUserTracks.push(...recentTracksIdx.track);
+            cachedUserTracks.push(...recentTracksIdx.track);
         }
 
         // Update Progress
@@ -136,19 +142,60 @@ compareForm.addEventListener('submit', async (e) => {
             const data = await response.json();
 
             if (data.recenttracks && Array.isArray(data.recenttracks.track)) {
-                allUserTracks.push(...data.recenttracks.track);
+                cachedUserTracks.push(...data.recenttracks.track);
             }
 
             updateProgress(page, totalPages, progressBar, progressText, pagesText);
         }
 
-        statusText.textContent = 'Processing & Comparing...';
+        // Done Loading
+        loadingDiv.classList.add('hidden');
+        step2Div.classList.remove('hidden'); // Show Compare Step
 
-        // Filter and Compare Logic
+    } catch (err) {
+        loadingDiv.classList.add('hidden');
+        stepLoadHistoryDiv.classList.remove('hidden'); // Show button again on fail
+        showError("Failed to load history: " + err.message);
+    }
+}
 
+
+// Step 3: Compare
+compareForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+
+    if (!validatedUsername) {
+        showError("Please verify a user first.");
+        return;
+    }
+
+    if (cachedUserTracks.length === 0) {
+        showError("No history loaded. Please load scrobble history.");
+        return;
+    }
+
+    const artist = document.getElementById('artist').value.trim();
+
+    // Reset Results UI
+    results.classList.add('hidden');
+    errorDiv.classList.add('hidden');
+    tracksList.innerHTML = '';
+
+    // Show simple loading state
+    const loadingDiv = document.getElementById('loading');
+    const statusText = document.querySelector('.progress-status');
+    const progressBarContainer = document.querySelector('.progress-bar-bg');
+    const progressStats = document.querySelector('.progress-stats');
+
+    loadingDiv.classList.remove('hidden');
+    statusText.textContent = `Comparing with ${artist}...`;
+    progressBarContainer.style.display = 'none';
+    progressStats.style.display = 'none';
+
+    try {
         // 1. Filter user tracks for the artist
-        const userArtistTracks = allUserTracks.filter(track => {
-            const trackArtist = track.artist['#text'] || track.artist.name; // structure can vary
+        const userArtistTracks = cachedUserTracks.filter(track => {
+            const trackArtist = track.artist['#text'] || track.artist.name;
             return trackArtist && trackArtist.toLowerCase() === artist.toLowerCase();
         });
 
@@ -188,8 +235,13 @@ compareForm.addEventListener('submit', async (e) => {
             }
         });
 
-        // Convert to array and sort by playcount (User Rank)
-        const aggregatedTracks = Array.from(trackMap.values());
+        // Read Filter Settings
+        const filterEnabled = document.getElementById('filterEnabled').checked;
+        const filterThreshold = parseInt(document.getElementById('filterThreshold').value) || 5;
+
+        // Convert to array, filter low plays if enabled, and sort by playcount (User Rank)
+        const aggregatedTracks = Array.from(trackMap.values())
+            .filter(t => !filterEnabled || t.playcount >= filterThreshold);
         aggregatedTracks.sort((a, b) => b.playcount - a.playcount);
 
         // Calculate Differentials
@@ -197,8 +249,6 @@ compareForm.addEventListener('submit', async (e) => {
             const userRank = userIndex + 1; // 1 = most played
             const communityRank = communityRankMap.get(userTrack.name.toLowerCase());
 
-            // If track is not in community top 50, strictly it's > 50. 
-            // We can treat it as 51 for math purposes
             const numericCommunityRank = communityRank || 51;
 
             return {
@@ -257,7 +307,9 @@ function displayUserInfo(user) {
 
     document.getElementById('resetUserBtn').addEventListener('click', () => {
         validatedUsername = null;
+        cachedUserTracks = [];
         userInfoDiv.classList.add('hidden');
+        stepLoadHistoryDiv.classList.add('hidden');
         step2Div.classList.add('hidden');
         userStepDiv.classList.remove('hidden');
         results.classList.add('hidden');
@@ -267,6 +319,7 @@ function displayUserInfo(user) {
 function resetUI() {
     errorDiv.classList.add('hidden');
     userInfoDiv.classList.add('hidden');
+    stepLoadHistoryDiv.classList.add('hidden');
     step2Div.classList.add('hidden');
     results.classList.add('hidden');
 }
@@ -290,7 +343,7 @@ function displayResults(data) {
         else if (track.differential < -10) scoreClass = 'score-low';
 
         // Image handling
-        const imgUrl = track.image || 'https://lastfm.freetls.fastly.net/i/u/64s/2a96cbd8b46e442fc41c2b86b821562f.png'; // default placeholder
+        const imgUrl = track.image || 'https://lastfm.freetls.fastly.net/i/u/64s/2a96cbd8b46e442fc41c2b86b821562f.png';
 
         card.innerHTML = `
             <img src="${imgUrl}" alt="${track.name}" class="track-image">

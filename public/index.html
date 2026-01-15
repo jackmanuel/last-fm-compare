@@ -33,13 +33,32 @@
                 <!-- User info injected here -->
             </div>
 
+            <!-- New Step: Load History -->
+            <div id="step-load-history" class="hidden" style="text-align: center; margin: 20px 0;">
+                <button id="loadHistoryBtn" class="primary-btn">Load Scrobble History</button>
+                <p class="hint-text">This will fetch all your recent tracks once so you can compare multiple artists
+                    quickly.</p>
+            </div>
+
             <div id="step2-compare" class="hidden">
                 <form id="compareForm">
                     <div class="input-group">
                         <label for="artist">Artist Name</label>
                         <div class="input-row">
                             <input type="text" id="artist" placeholder="e.g. Radiohead" required>
-                            <button type="submit">Fetch & Compare</button>
+                            <button type="submit">Compare</button>
+                        </div>
+                    </div>
+
+                    <!-- Filter Options -->
+                    <div class="filter-section">
+                        <div class="filter-row">
+                            <input type="checkbox" id="filterEnabled" checked>
+                            <label for="filterEnabled" class="inline-label">Hide low scrobbles</label>
+                        </div>
+                        <div class="filter-row" id="thresholdRow">
+                            <label for="filterThreshold" class="inline-label">Min scrobbles:</label>
+                            <input type="number" id="filterThreshold" value="5" min="1" max="100">
                         </div>
                     </div>
                 </form>
