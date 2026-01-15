@@ -22,14 +22,26 @@ userForm.addEventListener('submit', async (e) => {
 
     // Reset UI
     resetUI();
-    loading.classList.remove('hidden');
-    loading.textContent = "Fetching user info...";
+    const loadingDiv = document.getElementById('loading');
+    const statusText = document.querySelector('.progress-status');
+    const progressBarContainer = document.querySelector('.progress-bar-bg');
+    const progressStats = document.querySelector('.progress-stats');
+
+    loadingDiv.classList.remove('hidden');
+    statusText.textContent = "Fetching user info...";
+
+    // Hide progress bar elements for simple request
+    progressBarContainer.style.display = 'none';
+    progressStats.style.display = 'none';
 
     try {
         const response = await fetch(`/api/user-info?username=${encodeURIComponent(username)}`);
         const data = await response.json();
 
-        loading.classList.add('hidden');
+        loadingDiv.classList.add('hidden');
+        // Restore progress bar visibility for later
+        progressBarContainer.style.display = 'block';
+        progressStats.style.display = 'flex';
 
         if (!response.ok) {
             throw new Error(data.error || data.details || 'User not found');
@@ -39,11 +51,13 @@ userForm.addEventListener('submit', async (e) => {
         validatedUsername = data.username; // Store corrected username case
         // Show next step
         step2Div.classList.remove('hidden');
-        userStepDiv.classList.add('hidden'); // Optional: hide step 1 to declutter? Or keep it? Prompt implies "before fetching tracks"
-        // Let's keep step 1 hidden or simplified. Plan said: User Info -> Confirm (implied by proceeding) -> Artist Input.
+        userStepDiv.classList.add('hidden');
 
     } catch (err) {
-        loading.classList.add('hidden');
+        loadingDiv.classList.add('hidden');
+        // Restore visibility
+        progressBarContainer.style.display = 'block';
+        progressStats.style.display = 'flex';
         showError(err.message);
     }
 });
@@ -63,30 +77,139 @@ compareForm.addEventListener('submit', async (e) => {
     results.classList.add('hidden');
     errorDiv.classList.add('hidden');
     tracksList.innerHTML = '';
-    loading.classList.remove('hidden');
-    loading.textContent = "Parsing scrobbles...";
+
+    // Show Progress Bar
+    const loadingDiv = document.getElementById('loading');
+    const progressBar = document.getElementById('progressBar');
+    const progressText = document.getElementById('progressText');
+    const pagesText = document.getElementById('pagesText');
+    const statusText = document.querySelector('.progress-status');
+
+    loadingDiv.classList.remove('hidden');
+
+    // Ensure visibility (in case Step 1 hid them)
+    const progressBarContainer = document.querySelector('.progress-bar-bg');
+    const progressStatsContainer = document.querySelector('.progress-stats');
+    if (progressBarContainer) progressBarContainer.style.display = 'block';
+    if (progressStatsContainer) progressStatsContainer.style.display = 'flex';
+
+    progressBar.style.width = '0%';
+    progressText.textContent = '0%';
+    pagesText.textContent = 'Initializing...';
+    statusText.textContent = 'Fetching recent tracks...';
+
+    // Fetching Logic
+    const allUserTracks = [];
+    const LIMIT = 1000; // Max tracks per page
+    const DELAY_MS = 1000; // Rate limit: 1 request per second
 
     try {
-        const response = await fetch(`/api/compare/artist?username=${encodeURIComponent(validatedUsername)}&artist=${encodeURIComponent(artist)}`);
-        const data = await response.json();
+        // 1. Fetch Page 1 to get total pages
+        const page1Response = await fetch(`/api/recent-tracks?username=${encodeURIComponent(validatedUsername)}&limit=${LIMIT}&page=1`);
+        if (!page1Response.ok) throw new Error('Failed to fetch initial page');
+        const page1Data = await page1Response.json();
 
-        loading.classList.add('hidden');
+        const recentTracksIdx = page1Data.recenttracks;
+        if (!recentTracksIdx) throw new Error('Invalid response from Last.fm');
 
-        if (!response.ok) {
-            throw new Error(data.error || data.details || 'Something went wrong');
+        const totalPages = parseInt(recentTracksIdx['@attr'].totalPages);
+        const totalTracks = parseInt(recentTracksIdx['@attr'].total);
+
+        // Add page 1 tracks
+        if (Array.isArray(recentTracksIdx.track)) {
+            allUserTracks.push(...recentTracksIdx.track);
         }
 
-        if (data.message) {
-            throw new Error(data.message);
+        // Update Progress
+        updateProgress(1, totalPages, progressBar, progressText, pagesText);
+
+        // Loop for remaining pages
+        for (let page = 2; page <= totalPages; page++) {
+            // Rate Limit Delay
+            await new Promise(resolve => setTimeout(resolve, DELAY_MS));
+
+            const response = await fetch(`/api/recent-tracks?username=${encodeURIComponent(validatedUsername)}&limit=${LIMIT}&page=${page}`);
+            if (!response.ok) {
+                console.warn(`Failed to fetch page ${page}, skipping...`);
+                continue;
+            }
+            const data = await response.json();
+
+            if (data.recenttracks && Array.isArray(data.recenttracks.track)) {
+                allUserTracks.push(...data.recenttracks.track);
+            }
+
+            updateProgress(page, totalPages, progressBar, progressText, pagesText);
         }
 
-        displayResults(data);
+        statusText.textContent = 'Processing & Comparing...';
+
+        // Filter and Compare Logic
+
+        // 1. Filter user tracks for the artist
+        const userArtistTracks = allUserTracks.filter(track => {
+            const trackArtist = track.artist['#text'] || track.artist.name; // structure can vary
+            return trackArtist && trackArtist.toLowerCase() === artist.toLowerCase();
+        });
+
+        if (userArtistTracks.length === 0) {
+            loadingDiv.classList.add('hidden');
+            showError("User hasn't listened to this artist recently or artist not found.");
+            return;
+        }
+
+        // 2. Fetch Community Top Tracks
+        const communityResponse = await fetch(`/api/artist-top-tracks?artist=${encodeURIComponent(artist)}`);
+        if (!communityResponse.ok) throw new Error('Failed to fetch community data');
+        const communityData = await communityResponse.json();
+        const communityTracks = communityData.toptracks?.track || [];
+
+        // 3. Process and Compare
+        const communityRankMap = new Map();
+        communityTracks.forEach((track, index) => {
+            communityRankMap.set(track.name.toLowerCase(), index + 1);
+        });
+
+        // We need to determine "User Rank" based on recency.
+        // The array `allUserTracks` is already sorted by recency (most recent first) from the API.
+        // `userArtistTracks` preserves this order.
+
+        const comparison = userArtistTracks.map((userTrack, userIndex) => {
+            const userRank = userIndex + 1; // 1 = most recent
+            const communityRank = communityRankMap.get(userTrack.name.toLowerCase()) || 51;
+
+            return {
+                name: userTrack.name,
+                userRank: userRank,
+                communityRank: communityRank > 50 ? '>50' : communityRank,
+                playcount: 1,
+                differential: communityRank - userRank, // Higher positive = Unusual favorite (recent but not popular)
+                url: userTrack.url,
+                image: userTrack.image ? userTrack.image[1]['#text'] : null
+            };
+        });
+
+        // Sort by differential descending
+        comparison.sort((a, b) => b.differential - a.differential);
+
+        loadingDiv.classList.add('hidden');
+        displayResults({
+            artist: artist,
+            tracks: comparison
+        });
 
     } catch (err) {
-        loading.classList.add('hidden');
+        loadingDiv.classList.add('hidden');
         showError(err.message);
     }
 });
+
+function updateProgress(currentPage, totalPages, bar, text, pagesText) {
+    const percentage = Math.round((currentPage / totalPages) * 100);
+    bar.style.width = `${percentage}%`;
+    text.textContent = `${percentage}%`;
+    pagesText.textContent = `Page ${currentPage} of ${totalPages}`;
+}
 
 function displayUserInfo(user) {
     const registeredDate = new Date(user.registered * 1000);

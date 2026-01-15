@@ -45,7 +45,16 @@
                 </form>
             </div>
 
-            <div id="loading" class="hidden">Parsing scrobbles...</div>
+            <div id="loading" class="progress-container hidden">
+                <div class="progress-status">Parsing scrobbles...</div>
+                <div class="progress-bar-bg">
+                    <div id="progressBar" class="progress-bar-fill"></div>
+                </div>
+                <div class="progress-stats">
+                    <span id="progressText">0%</span>
+                    <span id="pagesText">Page 0 of 0</span>
+                </div>
+            </div>
             <div id="error" class="hidden"></div>
 
             <div id="results" class="hidden">
