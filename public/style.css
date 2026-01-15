@@ -1,0 +1,181 @@
+:root {
+    --bg-color: #121212;
+    --card-bg: #1e1e1e;
+    --text-primary: #ffffff;
+    --text-secondary: #aaaaaa;
+    --accent: #ba0000; /* Last.fm red */
+    --accent-hover: #d40000;
+}
+
+body {
+    font-family: 'Inter', sans-serif;
+    background-color: var(--bg-color);
+    color: var(--text-primary);
+    margin: 0;
+    padding: 0;
+    display: flex;
+    justify-content: center;
+    min-height: 100vh;
+}
+
+.container {
+    width: 100%;
+    max-width: 800px;
+    padding: 2rem;
+}
+
+header {
+    text-align: center;
+    margin-bottom: 3rem;
+}
+
+h1 {
+    font-size: 2.5rem;
+    font-weight: 700;
+    margin-bottom: 0.5rem;
+    background: linear-gradient(45deg, #ff4b1f, #ff9068);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+}
+
+p {
+    color: var(--text-secondary);
+}
+
+.input-group {
+    margin-bottom: 1.5rem;
+}
+
+label {
+    display: block;
+    margin-bottom: 0.5rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+}
+
+input {
+    width: 100%;
+    padding: 0.75rem;
+    border-radius: 8px;
+    border: 1px solid #333;
+    background-color: var(--card-bg);
+    color: var(--text-primary);
+    font-size: 1rem;
+    box-sizing: border-box; /* Fix padding issue */
+}
+
+input:focus {
+    outline: none;
+    border-color: var(--accent);
+}
+
+button {
+    width: 100%;
+    padding: 1rem;
+    background-color: var(--accent);
+    color: white;
+    border: none;
+    border-radius: 8px;
+    font-size: 1rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background-color 0.2s;
+}
+
+button:hover {
+    background-color: var(--accent-hover);
+}
+
+.hidden {
+    display: none !important;
+}
+
+#loading {
+    text-align: center;
+    margin-top: 2rem;
+    color: var(--text-secondary);
+}
+
+#error {
+    margin-top: 2rem;
+    padding: 1rem;
+    background-color: rgba(255, 0, 0, 0.1);
+    border: 1px solid red;
+    border-radius: 8px;
+    color: #ff6b6b;
+    text-align: center;
+}
+
+#results {
+    margin-top: 3rem;
+}
+
+.legend {
+    display: flex;
+    gap: 1rem;
+    margin-bottom: 1rem;
+    justify-content: flex-end;
+    font-size: 0.8rem;
+}
+
+.tracks-grid {
+    display: grid;
+    gap: 1rem;
+}
+
+.track-card {
+    background-color: var(--card-bg);
+    padding: 1rem;
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    border: 1px solid #333;
+}
+
+.track-image {
+    width: 50px;
+    height: 50px;
+    border-radius: 4px;
+    object-fit: cover;
+}
+
+.track-info {
+    flex-grow: 1;
+}
+
+.track-name {
+    font-weight: 600;
+    display: block;
+    margin-bottom: 0.25rem;
+    text-decoration: none;
+    color: var(--text-primary);
+}
+
+.track-meta {
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+}
+
+.score-badge {
+    padding: 0.5rem 1rem;
+    border-radius: 20px;
+    font-weight: 700;
+    font-size: 0.9rem;
+    min-width: 60px;
+    text-align: center;
+}
+
+/* Dynamic scoring colors */
+.score-high {
+    background-color: rgba(0, 255, 0, 0.1);
+    color: #4ade80;
+}
+.score-neutral {
+    background-color: rgba(255, 255, 255, 0.1);
+    color: #ccc;
+}
+.score-low {
+    background-color: rgba(255, 0, 0, 0.1);
+    color: #f87171;
+}
