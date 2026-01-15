@@ -164,28 +164,51 @@ compareForm.addEventListener('submit', async (e) => {
         const communityData = await communityResponse.json();
         const communityTracks = communityData.toptracks?.track || [];
 
-        // 3. Process and Compare
+        // 3. Process and Compare: AGGREGATION & RANKING
         const communityRankMap = new Map();
         communityTracks.forEach((track, index) => {
             communityRankMap.set(track.name.toLowerCase(), index + 1);
         });
 
-        // We need to determine "User Rank" based on recency.
-        // The array `allUserTracks` is already sorted by recency (most recent first) from the API.
-        // `userArtistTracks` preserves this order.
+        // Aggregate User Scrobbles by Song Name
+        const trackMap = new Map();
 
-        const comparison = userArtistTracks.map((userTrack, userIndex) => {
-            const userRank = userIndex + 1; // 1 = most recent
-            const communityRank = communityRankMap.get(userTrack.name.toLowerCase()) || 51;
+        userArtistTracks.forEach(track => {
+            const lowerName = track.name.toLowerCase();
+            if (trackMap.has(lowerName)) {
+                const existing = trackMap.get(lowerName);
+                existing.playcount++;
+            } else {
+                trackMap.set(lowerName, {
+                    name: track.name,
+                    playcount: 1,
+                    url: track.url,
+                    image: track.image ? track.image[1]['#text'] : null
+                });
+            }
+        });
+
+        // Convert to array and sort by playcount (User Rank)
+        const aggregatedTracks = Array.from(trackMap.values());
+        aggregatedTracks.sort((a, b) => b.playcount - a.playcount);
+
+        // Calculate Differentials
+        const comparison = aggregatedTracks.map((userTrack, userIndex) => {
+            const userRank = userIndex + 1; // 1 = most played
+            const communityRank = communityRankMap.get(userTrack.name.toLowerCase());
+
+            // If track is not in community top 50, strictly it's > 50. 
+            // We can treat it as 51 for math purposes
+            const numericCommunityRank = communityRank || 51;
 
             return {
                 name: userTrack.name,
                 userRank: userRank,
-                communityRank: communityRank > 50 ? '>50' : communityRank,
-                playcount: 1,
-                differential: communityRank - userRank, // Higher positive = Unusual favorite (recent but not popular)
+                communityRank: communityRank || '>50',
+                playcount: userTrack.playcount,
+                differential: numericCommunityRank - userRank,
                 url: userTrack.url,
-                image: userTrack.image ? userTrack.image[1]['#text'] : null
+                image: userTrack.image
             };
         });
 
