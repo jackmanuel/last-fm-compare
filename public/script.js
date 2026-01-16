@@ -31,8 +31,6 @@ if (filterCheckbox && filterThresholdInput) {
 }
 
 // State
-
-// State
 let validatedUsername = null;
 let cachedUserTracks = [];
 let globalComparisonData = null; // Store full comparison results
@@ -213,7 +211,7 @@ compareForm.addEventListener('submit', async (e) => {
 
         if (userArtistTracks.length === 0) {
             loadingDiv.classList.add('hidden');
-            showError("User hasn't listened to this artist recently or artist not found.");
+            showError("User hasn't listened to this artist or artist not found.");
             return;
         }
 
@@ -488,20 +486,17 @@ function renderListView(tracks) {
 }
 
 function renderColumnView(tracks) {
-    // 1. Positive Differential (Top 10)
-    // Already sorted by differential desc in global logic, but let's filter
+    // 1. Positive Differential
     const positiveTracks = tracks
         .filter(t => t.differential > 0)
         .slice(0, 10);
 
-    // 2. Neutral (Closest to 0) (Top 10)
+    // 2. Neutral (Closest to 0)
     const neutralTracks = [...tracks]
         .sort((a, b) => Math.abs(a.differential) - Math.abs(b.differential))
         .slice(0, 10);
 
-    // 3. Negative Differential (Top 10 ranking wise? i.e. most negative?)
-    // User said: "top 10 highest negative differential songs".
-    // Assuming this means the ones with the biggest negative number (e.g. -50).
+    // 3. Negative Differential
     const negativeTracks = tracks
         .filter(t => t.differential < 0)
         .sort((a, b) => a.differential - b.differential) // Ascending ( -10 before -1 )
@@ -564,4 +559,34 @@ function createTrackCard(track, compact = false) {
         </div>
     `;
     return card;
+}
+
+// Info Modal Logic
+const infoBtn = document.getElementById('infoBtn');
+const infoModal = document.getElementById('infoModal');
+const closeModal = document.getElementById('closeModal');
+const modalOverlay = document.querySelector('.modal-overlay');
+
+if (infoBtn && infoModal && closeModal) {
+    infoBtn.addEventListener('click', () => {
+        infoModal.classList.remove('hidden');
+        document.body.style.overflow = 'hidden';
+    });
+
+    const closeActions = [closeModal, modalOverlay];
+    closeActions.forEach(element => {
+        if (element) {
+            element.addEventListener('click', () => {
+                infoModal.classList.add('hidden');
+                document.body.style.overflow = '';
+            });
+        }
+    });
+
+    window.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && !infoModal.classList.contains('hidden')) {
+            infoModal.classList.add('hidden');
+            document.body.style.overflow = '';
+        }
+    });
 }
