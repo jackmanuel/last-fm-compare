@@ -136,39 +136,31 @@
                 <button id="closeModal" class="close-btn">&times;</button>
             </div>
             <div class="modal-body">
-                <section>
-                    <h3>How it works</h3>
-                    <p>This app compares your personal track rankings for an artist against the global last.fm community
-                        rankings.</p>
-                    <ul>
-                        <li><strong>Large Positive Differential</strong> These are your "unusual favourites". They are
-                            songs you've listened to much more than the average listener (compared to other tracks).
-                        </li>
-                        <li><strong>Large Negative Differential:</strong> These are songs that are more popular in the
-                            community than with you. You may consider these songs "overrated" by the community.</li>
-                        <li><strong>Small Differential:</strong> These are songs where your taste perfectly aligns with
-                            the community.
-                        </li>
-                    </ul>
+                <section class="note-box">
+                    <strong>⚠️ Important:</strong> Community rankings are based on <em>unique listener count of all
+                        time</em>, while your rankings are based on <em>your play count</em>. These are different
+                    metrics, and this may produce unexpected results. This is a limitation of the last.fm API, which
+                    does not support date filtering or sorting by play count for an artist's top tracks.
                 </section>
                 <section>
-                    <h3>The Logic</h3>
-                    <p>We fetch the top 100 tracks for an artist from last.fm and rank them 1-100. We then take your
-                        personal scrobble counts for songs by that artist and rank them. The
-                        <strong>differential</strong> is the difference between these two ranks for a given song.
-                    </p>
+                    <h3>How it works</h3>
+                    <p>We rank the top 100 tracks by an artist (by community unique listeners) and compare against your
+                        personal ranking (by your play counts). The <strong>differential</strong> is the difference
+                        between these ranks.</p>
+                    <ul>
+                        <li><strong>Positive Differential:</strong> Your "unusual favourites" - songs you play more than
+                            most.</li>
+                        <li><strong>Negative Differential:</strong> Songs more popular with others than with you.</li>
+                        <li><strong>Near Zero:</strong> Your taste aligns with the community.</li>
+                    </ul>
                 </section>
                 <section>
                     <h3>Limitations</h3>
                     <ul>
-                        <li><strong>Fetching Time:</strong> Loading your entire scrobble history can take several
-                            minutes if you have a lot of plays, due to last.fm API rate limits.</li>
-                        <li><strong>Recency:</strong> The last.fm API does not allow filtering by date when fetching an
-                            artists top tracks.
-                            Therefore, the top track ranking is top tracks of all time by <i>unique listener count</i>.
-                            Unfortunately this is just a limitation of the API. As a result, artists with a recent
-                            release may be overrepresented in "unusual favourites"
-                            since many older/inactive last.fm accounts will not have scrobbled it.</li>
+                        <li><strong>Fetching Time:</strong> Loading your scrobble history may take a few minutes due to
+                            API rate limits.</li>
+                        <li><strong>Recency Bias:</strong> Newer releases may appear in "unusual favourites" simply
+                            because many older accounts haven't scrobbled them.</li>
                     </ul>
                 </section>
             </div>

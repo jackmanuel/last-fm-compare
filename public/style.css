@@ -686,6 +686,20 @@ footer strong {
     margin-bottom: 2rem;
 }
 
+.note-box {
+    background: rgba(251, 191, 36, 0.1);
+    border: 1px solid rgba(251, 191, 36, 0.4);
+    border-radius: 8px;
+    padding: 1rem 1.25rem;
+    margin-bottom: 1.5rem;
+    font-size: 0.9rem;
+    line-height: 1.5;
+}
+
+.note-box strong {
+    color: #fbbf24;
+}
+
 .modal-body h3 {
     margin-top: 0;
     color: var(--accent);
