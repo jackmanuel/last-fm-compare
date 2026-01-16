@@ -1,3 +1,5 @@
+import { getUserInfo, getRecentTracks, getArtistTopTracks, getArtistInfo } from './api.js';
+
 const userForm = document.getElementById('userForm');
 const compareForm = document.getElementById('compareForm');
 const loading = document.getElementById('loading');
@@ -61,14 +63,9 @@ userForm.addEventListener('submit', async (e) => {
     progressStats.style.display = 'none';
 
     try {
-        const response = await fetch(`/api/user-info?username=${encodeURIComponent(username)}`);
-        const data = await response.json();
+        const data = await getUserInfo(username);
 
         loadingDiv.classList.add('hidden');
-
-        if (!response.ok) {
-            throw new Error(data.error || data.details || 'User not found');
-        }
 
         displayUserInfo(data);
         validatedUsername = data.username; // Store corrected username case
@@ -120,9 +117,7 @@ async function fetchAllScrobbles() {
 
     try {
         // 1. Fetch Page 1 to get total pages
-        const page1Response = await fetch(`/api/recent-tracks?username=${encodeURIComponent(validatedUsername)}&limit=${LIMIT}&page=1`);
-        if (!page1Response.ok) throw new Error('Failed to fetch initial page');
-        const page1Data = await page1Response.json();
+        const page1Data = await getRecentTracks(validatedUsername, LIMIT, 1);
 
         const recentTracksIdx = page1Data.recenttracks;
         if (!recentTracksIdx) throw new Error('Invalid response from Last.fm');
@@ -142,15 +137,14 @@ async function fetchAllScrobbles() {
             // Rate Limit Delay
             await new Promise(resolve => setTimeout(resolve, DELAY_MS));
 
-            const response = await fetch(`/api/recent-tracks?username=${encodeURIComponent(validatedUsername)}&limit=${LIMIT}&page=${page}`);
-            if (!response.ok) {
-                console.warn(`Failed to fetch page ${page}, skipping...`);
-                continue;
-            }
-            const data = await response.json();
+            try {
+                const data = await getRecentTracks(validatedUsername, LIMIT, page);
 
-            if (data.recenttracks && Array.isArray(data.recenttracks.track)) {
-                cachedUserTracks.push(...data.recenttracks.track);
+                if (data.recenttracks && Array.isArray(data.recenttracks.track)) {
+                    cachedUserTracks.push(...data.recenttracks.track);
+                }
+            } catch (pageError) {
+                console.warn(`Failed to fetch page ${page}, skipping...`);
             }
 
             updateProgress(page, totalPages, progressBar, progressText, pagesText);
@@ -216,13 +210,11 @@ compareForm.addEventListener('submit', async (e) => {
         }
 
         // 2. Fetch Community Top Tracks & Artist Info (Parallel)
-        const [communityResponse, artistInfoData] = await Promise.all([
-            fetch(`/api/artist-top-tracks?artist=${encodeURIComponent(artist)}`),
+        const [communityData, artistInfoData] = await Promise.all([
+            getArtistTopTracks(artist),
             fetchArtistInfo(artist)
         ]);
 
-        if (!communityResponse.ok) throw new Error('Failed to fetch community data');
-        const communityData = await communityResponse.json();
         const communityTracks = communityData.toptracks?.track || [];
 
         // Display Artist Info Immediately (if found)
@@ -302,15 +294,7 @@ compareForm.addEventListener('submit', async (e) => {
 
 async function fetchArtistInfo(artist) {
     try {
-        const username = validatedUsername; // Can be null if not validated, but here it should be
-        let url = `/api/artist-info?artist=${encodeURIComponent(artist)}`;
-        if (username) {
-            url += `&username=${encodeURIComponent(username)}`;
-        }
-
-        const response = await fetch(url);
-        if (!response.ok) return null;
-        const data = await response.json();
+        const data = await getArtistInfo(artist, validatedUsername);
         return data.artist;
     } catch (e) {
         console.warn("Failed to fetch artist info", e);
