@@ -486,20 +486,21 @@ function renderListView(tracks) {
 }
 
 function renderColumnView(tracks) {
-    // 1. Positive Differential
+    // 1. Positive Differential (Only >= 10)
     const positiveTracks = tracks
-        .filter(t => t.differential > 0)
+        .filter(t => t.differential >= 10)
         .slice(0, 10);
 
-    // 2. Neutral (Closest to 0)
-    const neutralTracks = [...tracks]
+    // 2. Neutral (Closest to 0, but only if absolute differential < 10)
+    const neutralTracks = tracks
+        .filter(t => Math.abs(t.differential) < 10)
         .sort((a, b) => Math.abs(a.differential) - Math.abs(b.differential))
         .slice(0, 10);
 
-    // 3. Negative Differential
+    // 3. Negative Differential (Only <= -10)
     const negativeTracks = tracks
-        .filter(t => t.differential < 0)
-        .sort((a, b) => a.differential - b.differential) // Ascending ( -10 before -1 )
+        .filter(t => t.differential <= -10)
+        .sort((a, b) => a.differential - b.differential) // Most negative first
         .slice(0, 10);
 
     createColumn("Top Positive (+)", "column-positive", positiveTracks, "You like more than the community");
