@@ -231,6 +231,16 @@ button:hover {
     text-align: center;
 }
 
+.warning-box {
+    margin-top: 2rem;
+    padding: 1rem;
+    background-color: rgba(251, 191, 36, 0.1);
+    border: 1px solid #fbbf24;
+    border-radius: 8px;
+    color: #fcd34d;
+    text-align: center;
+}
+
 #results {
     margin-top: 3rem;
 }

@@ -113,7 +113,9 @@ async function fetchAllScrobbles() {
     statusText.textContent = 'Fetching full listening history...';
 
     const LIMIT = 1000; // Max tracks per page
-    const DELAY_MS = 1000; // Rate limit: 1 request per second
+    const DELAY_MS = 500; // Rate limit: 2 requests per second
+    const MAX_RETRIES = 2; // Number of retries per failed page
+    let failedPages = []; // Track pages that failed even after retries
 
     try {
         // 1. Fetch Page 1 to get total pages
@@ -137,22 +139,55 @@ async function fetchAllScrobbles() {
             // Rate Limit Delay
             await new Promise(resolve => setTimeout(resolve, DELAY_MS));
 
-            try {
-                const data = await getRecentTracks(validatedUsername, LIMIT, page);
+            let success = false;
+            for (let attempt = 0; attempt <= MAX_RETRIES && !success; attempt++) {
+                try {
+                    if (attempt > 0) {
+                        // Exponential backoff for retries: 1s, 2s
+                        const retryDelay = 1000 * attempt;
+                        console.log(`Retry ${attempt} for page ${page} after ${retryDelay}ms...`);
+                        await new Promise(resolve => setTimeout(resolve, retryDelay));
+                    }
 
-                if (data.recenttracks && Array.isArray(data.recenttracks.track)) {
-                    cachedUserTracks.push(...data.recenttracks.track);
+                    const data = await getRecentTracks(validatedUsername, LIMIT, page);
+
+                    if (data.recenttracks && Array.isArray(data.recenttracks.track)) {
+                        cachedUserTracks.push(...data.recenttracks.track);
+                    }
+                    success = true;
+                } catch (pageError) {
+                    console.warn(`Failed to fetch page ${page}, attempt ${attempt + 1}/${MAX_RETRIES + 1}:`, pageError.message);
                 }
-            } catch (pageError) {
-                console.warn(`Failed to fetch page ${page}, skipping...`);
+            }
+
+            if (!success) {
+                failedPages.push(page);
+                console.error(`Page ${page} failed after ${MAX_RETRIES + 1} attempts, skipping.`);
             }
 
             updateProgress(page, totalPages, progressBar, progressText, pagesText);
         }
 
+        // Deduplicate scrobbles by timestamp to prevent double-counting
+        // (can happen if browser retries pages or resumes from sleep)
+        // Also filters out "now playing" tracks which have no timestamp
+        const seen = new Set();
+        cachedUserTracks = cachedUserTracks.filter(track => {
+            if (!track.date?.uts) return false; // Ignore "now playing" tracks
+            if (seen.has(track.date.uts)) return false;
+            seen.add(track.date.uts);
+            return true;
+        });
+
         // Done Loading
         loadingDiv.classList.add('hidden');
         step2Div.classList.remove('hidden'); // Show Compare Step
+
+        // Show warning if some pages failed
+        if (failedPages.length > 0) {
+            const failedPercent = Math.round((failedPages.length / totalPages) * 100);
+            showWarning(`Warning: ${failedPages.length} of ${totalPages} pages failed to load (~${failedPercent}% of your scrobbles may be missing). Results may be incomplete.`);
+        }
 
     } catch (err) {
         loadingDiv.classList.add('hidden');
@@ -436,6 +471,14 @@ function resetUI() {
 function showError(msg) {
     errorDiv.textContent = msg;
     errorDiv.classList.remove('hidden');
+}
+
+function showWarning(msg) {
+    const warningDiv = document.getElementById('warning');
+    if (warningDiv) {
+        warningDiv.textContent = msg;
+        warningDiv.classList.remove('hidden');
+    }
 }
 
 // Toggle View Logic
