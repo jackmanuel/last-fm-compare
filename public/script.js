@@ -103,6 +103,9 @@ loadHistoryBtn.addEventListener('click', async () => {
 });
 
 async function fetchAllScrobbles() {
+    // Clear any previous error
+    errorDiv.classList.add('hidden');
+
     // Show Progress UI
     const loadingDiv = document.getElementById('loading');
     const progressBar = document.getElementById('progressBar');
@@ -296,7 +299,7 @@ async function fetchAllScrobbles() {
     } catch (err) {
         loadingDiv.classList.add('hidden');
         stepLoadHistoryDiv.classList.remove('hidden'); // Show button again on fail
-        showError("Failed to load history: " + err.message);
+        showError("Failed to load history. Please try again.");
     }
 }
 
