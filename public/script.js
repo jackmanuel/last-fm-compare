@@ -111,6 +111,29 @@ async function fetchAllScrobbles() {
 
     loadingDiv.classList.remove('hidden');
 
+    // DEV MODE: Check for cached scrobbles when running on localhost
+    if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+        try {
+            statusText.textContent = 'Checking for cached scrobbles...';
+            const cacheResponse = await fetch(`/cache/${validatedUsername.toLowerCase()}.json`);
+            if (cacheResponse.ok) {
+                cachedUserTracks = await cacheResponse.json();
+                console.log(`🚀 Loaded ${cachedUserTracks.length.toLocaleString()} scrobbles from cache`);
+
+                // Skip to showing results (same as end of normal fetch)
+                loadingDiv.classList.add('hidden');
+                step2Div.classList.remove('hidden');
+
+                // Still fetch top artists with images
+                await loadTopArtistsFromCache();
+                return;
+            }
+        } catch (e) {
+            // No cache found, proceed with normal API fetch
+            console.log('No cache found, fetching from API...');
+        }
+    }
+
     // Restore progress bar visibility
     const progressBarContainer = document.querySelector('.progress-bar-bg');
     const progressStatsContainer = document.querySelector('.progress-stats');
@@ -293,6 +316,74 @@ function getTopArtistsFromScrobbles(tracks, limit = 10) {
     return sorted;
 }
 
+// Helper function to load top artists when using cached scrobbles
+async function loadTopArtistsFromCache() {
+    const loadingDiv = document.getElementById('loading');
+    const statusText = document.querySelector('.progress-status');
+    const progressBarContainer = document.querySelector('.progress-bar-bg');
+    const progressStatsContainer = document.querySelector('.progress-stats');
+
+    try {
+        const topArtists = getTopArtistsFromScrobbles(cachedUserTracks, 10);
+        if (topArtists.length > 0) {
+            statusText.textContent = 'Fetching artist images...';
+            progressBarContainer.style.display = 'none';
+            progressStatsContainer.style.display = 'none';
+            loadingDiv.classList.remove('hidden');
+
+            const artistsWithInfo = [];
+            for (let i = 0; i < topArtists.length; i++) {
+                const artist = topArtists[i];
+                try {
+                    const artistInfo = await fetchArtistInfo(artist.name);
+                    if (artistInfo) {
+                        cachedArtistInfo.set(artist.name.toLowerCase(), artistInfo);
+                        let image = '/default_pfp.png';
+                        if (artistInfo.image) {
+                            const imgObj = artistInfo.image.find(img => img.size === 'large')
+                                || artistInfo.image.find(img => img.size === 'medium')
+                                || artistInfo.image[0];
+                            if (imgObj?.['#text'] && imgObj['#text'].trim() !== '') {
+                                image = imgObj['#text'];
+                            }
+                        }
+                        artistsWithInfo.push({
+                            name: artistInfo.name,
+                            playcount: artist.playcount,
+                            url: artistInfo.url,
+                            image: image
+                        });
+                    } else {
+                        artistsWithInfo.push({
+                            name: artist.name,
+                            playcount: artist.playcount,
+                            url: `https://www.last.fm/music/${encodeURIComponent(artist.name)}`,
+                            image: '/default_pfp.png'
+                        });
+                    }
+                } catch (e) {
+                    console.warn(`Failed to fetch info for ${artist.name}:`, e);
+                    artistsWithInfo.push({
+                        name: artist.name,
+                        playcount: artist.playcount,
+                        url: `https://www.last.fm/music/${encodeURIComponent(artist.name)}`,
+                        image: '/default_pfp.png'
+                    });
+                }
+
+                if (i < topArtists.length - 1) {
+                    await new Promise(resolve => setTimeout(resolve, RATE_LIMIT_DELAY_MS));
+                }
+            }
+
+            loadingDiv.classList.add('hidden');
+            displayTopArtists(artistsWithInfo);
+        }
+    } catch (err) {
+        console.warn('Failed to load top artists from cache:', err);
+        loadingDiv.classList.add('hidden');
+    }
+}
 
 // Step 3: Compare
 compareForm.addEventListener('submit', async (e) => {

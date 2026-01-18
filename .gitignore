@@ -1,2 +1,5 @@
 node_modules
 .env
+
+# Local scrobble cache for development testing
+public/cache/
