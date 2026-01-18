@@ -233,11 +233,8 @@ async function fetchAllScrobbles() {
         try {
             const topArtists = getTopArtistsFromScrobbles(cachedUserTracks, 10);
             if (topArtists.length > 0) {
-                // Show loading for fetching artist images
-                statusText.textContent = 'Fetching artist images...';
-                progressBarContainer.style.display = 'none';
-                progressStatsContainer.style.display = 'none';
-                loadingDiv.classList.remove('hidden');
+                // Immediately show skeleton placeholders and hide loading message
+                displayTopArtistSkeletons(topArtists.length);
 
                 // Fetch artist info with rate limiting (5 requests per second = 200ms delay)
                 const artistsWithInfo = [];
@@ -289,12 +286,10 @@ async function fetchAllScrobbles() {
                     }
                 }
 
-                loadingDiv.classList.add('hidden');
                 displayTopArtists(artistsWithInfo);
             }
         } catch (topArtistsErr) {
             console.warn('Failed to process top artists:', topArtistsErr);
-            loadingDiv.classList.add('hidden');
             // Non-critical error, just don't show the grid
         }
 
@@ -328,18 +323,11 @@ function getTopArtistsFromScrobbles(tracks, limit = 10) {
 
 // Helper function to load top artists when using cached scrobbles
 async function loadTopArtistsFromCache() {
-    const loadingDiv = document.getElementById('loading');
-    const statusText = document.querySelector('.progress-status');
-    const progressBarContainer = document.querySelector('.progress-bar-bg');
-    const progressStatsContainer = document.querySelector('.progress-stats');
-
     try {
         const topArtists = getTopArtistsFromScrobbles(cachedUserTracks, 10);
         if (topArtists.length > 0) {
-            statusText.textContent = 'Fetching artist images...';
-            progressBarContainer.style.display = 'none';
-            progressStatsContainer.style.display = 'none';
-            loadingDiv.classList.remove('hidden');
+            // Immediately show skeleton placeholders
+            displayTopArtistSkeletons(topArtists.length);
 
             const artistsWithInfo = [];
             for (let i = 0; i < topArtists.length; i++) {
@@ -386,12 +374,10 @@ async function loadTopArtistsFromCache() {
                 }
             }
 
-            loadingDiv.classList.add('hidden');
             displayTopArtists(artistsWithInfo);
         }
     } catch (err) {
         console.warn('Failed to load top artists from cache:', err);
-        loadingDiv.classList.add('hidden');
     }
 }
 
@@ -697,7 +683,33 @@ function displayUserInfo(user) {
     });
 }
 
+// Display skeleton placeholders for top artists while loading
+function displayTopArtistSkeletons(count = 10) {
+    // Update header text to indicate loading
+    const header = document.querySelector('.top-artists-header');
+    if (header) {
+        header.textContent = 'Loading artist information...';
+    }
+
+    topArtistsGrid.innerHTML = Array(count).fill(0).map(() => `
+        <div class="top-artist-card skeleton-card">
+            <div class="skeleton-image skeleton"></div>
+            <div class="skeleton-info">
+                <div class="skeleton-text name skeleton"></div>
+                <div class="skeleton-text count skeleton"></div>
+            </div>
+        </div>
+    `).join('');
+    stepTopArtistsDiv.classList.remove('hidden');
+}
+
 function displayTopArtists(artists) {
+    // Restore header text
+    const header = document.querySelector('.top-artists-header');
+    if (header) {
+        header.textContent = 'Your Top 10 Artists — Pick one to compare';
+    }
+
     if (!artists || artists.length === 0) {
         stepTopArtistsDiv.classList.add('hidden');
         return;
