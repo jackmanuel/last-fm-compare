@@ -518,8 +518,20 @@ function applyFilterAndDisplay() {
 
     const filterEnabled = document.getElementById('filterEnabled').checked;
     const filterThreshold = parseInt(document.getElementById('filterThreshold').value) || 5;
+    const hiddenCountSpan = document.getElementById('hiddenCount');
 
     const filteredTracks = globalComparisonData.tracks.filter(t => !filterEnabled || t.playcount >= filterThreshold);
+    const hiddenCount = globalComparisonData.tracks.length - filteredTracks.length;
+
+    // Update hidden count display
+    if (hiddenCountSpan) {
+        if (filterEnabled && hiddenCount > 0) {
+            hiddenCountSpan.textContent = `(${hiddenCount} hidden)`;
+            hiddenCountSpan.style.display = 'inline';
+        } else {
+            hiddenCountSpan.style.display = 'none';
+        }
+    }
 
     displayResults({
         artist: globalComparisonData.artist,

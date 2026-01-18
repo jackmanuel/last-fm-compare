@@ -102,6 +102,12 @@ input:focus {
     font-weight: 400;
 }
 
+.hidden-count {
+    color: var(--text-secondary);
+    font-size: 0.85rem;
+    opacity: 0.8;
+}
+
 #filterThreshold {
     width: 60px;
     padding: 0.25rem 0.5rem;

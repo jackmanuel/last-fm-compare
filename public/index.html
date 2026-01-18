@@ -54,10 +54,11 @@
             </div>
 
             <div id="step-top-artists" class="hidden">
-                <h3 class="top-artists-header">Pick an artist to compare</h3>
+                <h3 class="top-artists-header">Your Top 10 Artists — Pick one to compare</h3>
                 <div id="topArtistsGrid" class="top-artists-grid">
                     <!-- Artist cards injected here -->
                 </div>
+                <p class="hint-text">Or enter any artist name in the text box below</p>
             </div>
 
             <div id="step2-compare" class="hidden">
@@ -98,6 +99,7 @@
                     <div class="filter-row">
                         <input type="checkbox" id="filterEnabled" checked>
                         <label for="filterEnabled" class="inline-label">Hide low scrobbles</label>
+                        <span id="hiddenCount" class="hidden-count"></span>
                     </div>
                     <div class="filter-row" id="thresholdRow">
                         <label for="filterThreshold" class="inline-label">Min scrobbles:</label>
