@@ -46,6 +46,7 @@ let validatedUsername = null;
 let cachedUserTracks = [];
 let globalComparisonData = null; // Store full comparison results
 let cachedArtistInfo = new Map(); // Cache artist info including images
+let cachedArtistTopTracks = new Map(); // Cache artist.getTopTracks results
 
 // Step 1: Check User
 userForm.addEventListener('submit', async (e) => {
@@ -432,22 +433,34 @@ compareForm.addEventListener('submit', async (e) => {
             return;
         }
 
-        // 2. Check cache for artist info, otherwise fetch
-        let artistInfoData = cachedArtistInfo.get(artist.toLowerCase());
-        let communityData;
+        // 2. Check caches for artist info and top tracks, otherwise fetch
+        const artistKey = artist.toLowerCase();
+        let artistInfoData = cachedArtistInfo.get(artistKey);
+        let communityData = cachedArtistTopTracks.get(artistKey);
 
-        if (artistInfoData) {
-            // Only fetch community tracks if we have cached artist info
+        if (artistInfoData && communityData) {
+            // Both cached - no API calls needed
+            console.log(`Using cached data for ${artist}`);
+        } else if (artistInfoData && !communityData) {
+            // Only need to fetch top tracks
             communityData = await getArtistTopTracks(artist);
+            cachedArtistTopTracks.set(artistKey, communityData);
+        } else if (!artistInfoData && communityData) {
+            // Only need to fetch artist info (rare case)
+            artistInfoData = await fetchArtistInfo(artist);
+            if (artistInfoData) {
+                cachedArtistInfo.set(artistKey, artistInfoData);
+            }
         } else {
             // Fetch both in parallel
             [communityData, artistInfoData] = await Promise.all([
                 getArtistTopTracks(artist),
                 fetchArtistInfo(artist)
             ]);
-            // Cache the artist info for future use
+            // Cache both for future use
+            cachedArtistTopTracks.set(artistKey, communityData);
             if (artistInfoData) {
-                cachedArtistInfo.set(artist.toLowerCase(), artistInfoData);
+                cachedArtistInfo.set(artistKey, artistInfoData);
             }
         }
 
@@ -710,6 +723,7 @@ function resetUI() {
     results.classList.add('hidden');
     artistInfoDiv.classList.add('hidden');
     cachedArtistInfo.clear(); // Clear cached artist info on user change
+    cachedArtistTopTracks.clear(); // Clear cached top tracks on user change
 }
 
 function showError(msg) {
