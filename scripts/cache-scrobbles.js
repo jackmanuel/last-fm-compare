@@ -9,7 +9,7 @@
  *   node scripts/cache-scrobbles.js <username>
  * 
  * Example:
- *   node scripts/cache-scrobbles.js strawberryroot
+ *   node scripts/cache-scrobbles.js JackMan3141
  */
 
 const fs = require('fs');
@@ -74,9 +74,17 @@ async function main() {
             allTracks.push(...page1Data.recenttracks.track);
         }
 
+        // Track when each request starts for smart rate limiting
+        let lastRequestTime = Date.now();
+
         // Fetch remaining pages with progress
         for (let page = 2; page <= totalPages; page++) {
-            await new Promise(resolve => setTimeout(resolve, RATE_LIMIT_DELAY_MS));
+            // Smart rate limiting: only wait if we're going faster than the limit
+            const elapsed = Date.now() - lastRequestTime;
+            if (elapsed < RATE_LIMIT_DELAY_MS) {
+                await new Promise(resolve => setTimeout(resolve, RATE_LIMIT_DELAY_MS - elapsed));
+            }
+            lastRequestTime = Date.now();
 
             const progress = Math.round((page / totalPages) * 100);
             process.stdout.write(`\r📄 Fetching page ${page}/${totalPages} (${progress}%)`);

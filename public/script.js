@@ -165,10 +165,17 @@ async function fetchAllScrobbles() {
         // Update Progress
         updateProgress(1, totalPages, progressBar, progressText, pagesText);
 
+        // Track when each request starts for smart rate limiting
+        let lastRequestTime = Date.now();
+
         // Loop for remaining pages
         for (let page = 2; page <= totalPages; page++) {
-            // Rate Limit Delay
-            await new Promise(resolve => setTimeout(resolve, SCROBBLE_FETCH_DELAY_MS));
+            // Smart rate limiting: only wait if we're going faster than the limit
+            const elapsed = Date.now() - lastRequestTime;
+            if (elapsed < SCROBBLE_FETCH_DELAY_MS) {
+                await new Promise(resolve => setTimeout(resolve, SCROBBLE_FETCH_DELAY_MS - elapsed));
+            }
+            lastRequestTime = Date.now();
 
             let success = false;
             for (let attempt = 0; attempt <= MAX_RETRIES && !success; attempt++) {
@@ -178,6 +185,8 @@ async function fetchAllScrobbles() {
                         const retryDelay = RETRY_BASE_DELAY_MS * attempt;
                         console.log(`Retry ${attempt} for page ${page} after ${retryDelay}ms...`);
                         await new Promise(resolve => setTimeout(resolve, retryDelay));
+                        // Reset timing after retry delay so we don't double-wait
+                        lastRequestTime = Date.now();
                     }
 
                     const data = await getRecentTracks(validatedUsername, SCROBBLE_PAGE_LIMIT, page);
