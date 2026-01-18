@@ -678,8 +678,13 @@ function displayUserInfo(user) {
         userInfoDiv.classList.add('hidden');
         stepLoadHistoryDiv.classList.add('hidden');
         step2Div.classList.add('hidden');
+        stepTopArtistsDiv.classList.add('hidden');
+        topArtistsGrid.innerHTML = '';
         userStepDiv.classList.remove('hidden');
         results.classList.add('hidden');
+        artistInfoDiv.classList.add('hidden');
+        cachedArtistInfo.clear();
+        cachedArtistTopTracks.clear();
     });
 }
 
