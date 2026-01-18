@@ -58,3 +58,45 @@ export async function getArtistInfo(artist, username = null) {
     }
     return lastFmRequest('artist.getInfo', params);
 }
+
+export async function getUserTopArtists(username, limit = 10) {
+    const data = await lastFmRequest('user.getTopArtists', {
+        user: username,
+        limit: limit,
+        period: 'overall'
+    });
+
+    const artists = data.topartists?.artist || [];
+
+    // Last.fm returns a generic placeholder image for top artists,
+    // so we need to fetch artist info to get real profile pictures
+    const artistsWithImages = await Promise.all(
+        artists.map(async (artist) => {
+            let image = '/default_pfp.png';
+            try {
+                const infoData = await lastFmRequest('artist.getInfo', { artist: artist.name });
+                const artistInfo = infoData.artist;
+                if (artistInfo?.image) {
+                    const imgObj = artistInfo.image.find(img => img.size === 'large')
+                        || artistInfo.image.find(img => img.size === 'medium')
+                        || artistInfo.image[0];
+                    // Check if it's not the generic placeholder
+                    if (imgObj?.['#text'] && !imgObj['#text'].includes('2a96cbd8b46e442fc41c2b86b821562f')) {
+                        image = imgObj['#text'];
+                    }
+                }
+            } catch (e) {
+                console.warn(`Failed to fetch artist info for ${artist.name}:`, e.message);
+            }
+
+            return {
+                name: artist.name,
+                playcount: parseInt(artist.playcount) || 0,
+                url: artist.url,
+                image: image
+            };
+        })
+    );
+
+    return artistsWithImages;
+}

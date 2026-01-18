@@ -1,5 +1,12 @@
 import { getUserInfo, getRecentTracks, getArtistTopTracks, getArtistInfo } from './api.js';
 
+// Rate limiting constants (Last.fm API limits: 5 requests/second)
+const RATE_LIMIT_DELAY_MS = 200;        // 5 req/sec for artist.getInfo calls
+const SCROBBLE_FETCH_DELAY_MS = 500;    // Conservative 2 req/sec for history pages
+const RETRY_BASE_DELAY_MS = 1000;       // Base delay for exponential backoff
+const MAX_RETRIES = 2;                  // Max retry attempts per failed page
+const SCROBBLE_PAGE_LIMIT = 1000;       // Max tracks per page
+
 const userForm = document.getElementById('userForm');
 const compareForm = document.getElementById('compareForm');
 const loading = document.getElementById('loading');
@@ -12,6 +19,8 @@ const stepLoadHistoryDiv = document.getElementById('step-load-history');
 const loadHistoryBtn = document.getElementById('loadHistoryBtn');
 const step2Div = document.getElementById('step2-compare');
 const userStepDiv = document.getElementById('step1-user');
+const stepTopArtistsDiv = document.getElementById('step-top-artists');
+const topArtistsGrid = document.getElementById('topArtistsGrid');
 
 // Filter UI Logic
 const filterCheckbox = document.getElementById('filterEnabled');
@@ -36,6 +45,7 @@ if (filterCheckbox && filterThresholdInput) {
 let validatedUsername = null;
 let cachedUserTracks = [];
 let globalComparisonData = null; // Store full comparison results
+let cachedArtistInfo = new Map(); // Cache artist info including images
 
 // Step 1: Check User
 userForm.addEventListener('submit', async (e) => {
@@ -112,14 +122,11 @@ async function fetchAllScrobbles() {
     pagesText.textContent = 'Initializing...';
     statusText.textContent = 'Fetching full listening history...';
 
-    const LIMIT = 1000; // Max tracks per page
-    const DELAY_MS = 500; // Rate limit: 2 requests per second
-    const MAX_RETRIES = 2; // Number of retries per failed page
     let failedPages = []; // Track pages that failed even after retries
 
     try {
         // 1. Fetch Page 1 to get total pages
-        const page1Data = await getRecentTracks(validatedUsername, LIMIT, 1);
+        const page1Data = await getRecentTracks(validatedUsername, SCROBBLE_PAGE_LIMIT, 1);
 
         const recentTracksIdx = page1Data.recenttracks;
         if (!recentTracksIdx) throw new Error('Invalid response from Last.fm');
@@ -137,19 +144,19 @@ async function fetchAllScrobbles() {
         // Loop for remaining pages
         for (let page = 2; page <= totalPages; page++) {
             // Rate Limit Delay
-            await new Promise(resolve => setTimeout(resolve, DELAY_MS));
+            await new Promise(resolve => setTimeout(resolve, SCROBBLE_FETCH_DELAY_MS));
 
             let success = false;
             for (let attempt = 0; attempt <= MAX_RETRIES && !success; attempt++) {
                 try {
                     if (attempt > 0) {
                         // Exponential backoff for retries: 1s, 2s
-                        const retryDelay = 1000 * attempt;
+                        const retryDelay = RETRY_BASE_DELAY_MS * attempt;
                         console.log(`Retry ${attempt} for page ${page} after ${retryDelay}ms...`);
                         await new Promise(resolve => setTimeout(resolve, retryDelay));
                     }
 
-                    const data = await getRecentTracks(validatedUsername, LIMIT, page);
+                    const data = await getRecentTracks(validatedUsername, SCROBBLE_PAGE_LIMIT, page);
 
                     if (data.recenttracks && Array.isArray(data.recenttracks.track)) {
                         cachedUserTracks.push(...data.recenttracks.track);
@@ -189,11 +196,101 @@ async function fetchAllScrobbles() {
             showWarning(`Warning: ${failedPages.length} of ${totalPages} pages failed to load (~${failedPercent}% of your scrobbles may be missing). Results may be incomplete.`);
         }
 
+        // Compute top 10 artists from scrobble corpus and fetch their info
+        try {
+            const topArtists = getTopArtistsFromScrobbles(cachedUserTracks, 10);
+            if (topArtists.length > 0) {
+                // Show loading for fetching artist images
+                statusText.textContent = 'Fetching artist images...';
+                progressBarContainer.style.display = 'none';
+                progressStatsContainer.style.display = 'none';
+                loadingDiv.classList.remove('hidden');
+
+                // Fetch artist info with rate limiting (5 requests per second = 200ms delay)
+                const artistsWithInfo = [];
+                for (let i = 0; i < topArtists.length; i++) {
+                    const artist = topArtists[i];
+                    try {
+                        const artistInfo = await fetchArtistInfo(artist.name);
+                        if (artistInfo) {
+                            // Cache the artist info for later use during comparison
+                            cachedArtistInfo.set(artist.name.toLowerCase(), artistInfo);
+
+                            // Get image from artist info
+                            let image = '/default_pfp.png';
+                            if (artistInfo.image) {
+                                const imgObj = artistInfo.image.find(img => img.size === 'large')
+                                    || artistInfo.image.find(img => img.size === 'medium')
+                                    || artistInfo.image[0];
+                                if (imgObj?.['#text'] && imgObj['#text'].trim() !== '') {
+                                    image = imgObj['#text'];
+                                }
+                            }
+                            artistsWithInfo.push({
+                                name: artistInfo.name, // Use canonical name
+                                playcount: artist.playcount,
+                                url: artistInfo.url,
+                                image: image
+                            });
+                        } else {
+                            artistsWithInfo.push({
+                                name: artist.name,
+                                playcount: artist.playcount,
+                                url: `https://www.last.fm/music/${encodeURIComponent(artist.name)}`,
+                                image: '/default_pfp.png'
+                            });
+                        }
+                    } catch (e) {
+                        console.warn(`Failed to fetch info for ${artist.name}:`, e);
+                        artistsWithInfo.push({
+                            name: artist.name,
+                            playcount: artist.playcount,
+                            url: `https://www.last.fm/music/${encodeURIComponent(artist.name)}`,
+                            image: '/default_pfp.png'
+                        });
+                    }
+
+                    // Rate limit delay between artist info requests
+                    if (i < topArtists.length - 1) {
+                        await new Promise(resolve => setTimeout(resolve, RATE_LIMIT_DELAY_MS));
+                    }
+                }
+
+                loadingDiv.classList.add('hidden');
+                displayTopArtists(artistsWithInfo);
+            }
+        } catch (topArtistsErr) {
+            console.warn('Failed to process top artists:', topArtistsErr);
+            loadingDiv.classList.add('hidden');
+            // Non-critical error, just don't show the grid
+        }
+
     } catch (err) {
         loadingDiv.classList.add('hidden');
         stepLoadHistoryDiv.classList.remove('hidden'); // Show button again on fail
         showError("Failed to load history: " + err.message);
     }
+}
+
+// Compute top N artists from scrobble data
+function getTopArtistsFromScrobbles(tracks, limit = 10) {
+    const artistCounts = new Map();
+
+    tracks.forEach(track => {
+        const artistName = track.artist?.['#text'] || track.artist?.name;
+        if (!artistName) return;
+
+        const current = artistCounts.get(artistName) || 0;
+        artistCounts.set(artistName, current + 1);
+    });
+
+    // Convert to array and sort by count descending
+    const sorted = Array.from(artistCounts.entries())
+        .map(([name, playcount]) => ({ name, playcount }))
+        .sort((a, b) => b.playcount - a.playcount)
+        .slice(0, limit);
+
+    return sorted;
 }
 
 
@@ -244,11 +341,24 @@ compareForm.addEventListener('submit', async (e) => {
             return;
         }
 
-        // 2. Fetch Community Top Tracks & Artist Info (Parallel)
-        const [communityData, artistInfoData] = await Promise.all([
-            getArtistTopTracks(artist),
-            fetchArtistInfo(artist)
-        ]);
+        // 2. Check cache for artist info, otherwise fetch
+        let artistInfoData = cachedArtistInfo.get(artist.toLowerCase());
+        let communityData;
+
+        if (artistInfoData) {
+            // Only fetch community tracks if we have cached artist info
+            communityData = await getArtistTopTracks(artist);
+        } else {
+            // Fetch both in parallel
+            [communityData, artistInfoData] = await Promise.all([
+                getArtistTopTracks(artist),
+                fetchArtistInfo(artist)
+            ]);
+            // Cache the artist info for future use
+            if (artistInfoData) {
+                cachedArtistInfo.set(artist.toLowerCase(), artistInfoData);
+            }
+        }
 
         const communityTracks = communityData.toptracks?.track || [];
 
@@ -457,6 +567,35 @@ function displayUserInfo(user) {
     });
 }
 
+function displayTopArtists(artists) {
+    if (!artists || artists.length === 0) {
+        stepTopArtistsDiv.classList.add('hidden');
+        return;
+    }
+
+    topArtistsGrid.innerHTML = artists.map(artist => `
+        <div class="top-artist-card" data-artist="${artist.name.replace(/"/g, '&quot;')}">
+            <img src="${artist.image}" alt="${artist.name}" class="top-artist-image" onerror="this.onerror=null;this.src='/default_pfp.png';">
+            <div class="top-artist-info">
+                <div class="top-artist-name" title="${artist.name}">${artist.name}</div>
+                <div class="top-artist-scrobbles">${artist.playcount.toLocaleString()} scrobbles</div>
+            </div>
+        </div>
+    `).join('');
+
+    // Add click handlers
+    topArtistsGrid.querySelectorAll('.top-artist-card').forEach(card => {
+        card.addEventListener('click', () => {
+            const artistName = card.dataset.artist;
+            document.getElementById('artist').value = artistName;
+            // Auto-trigger compare
+            compareForm.dispatchEvent(new Event('submit'));
+        });
+    });
+
+    stepTopArtistsDiv.classList.remove('hidden');
+}
+
 function resetUI() {
     errorDiv.classList.add('hidden');
     userInfoDiv.classList.add('hidden');
@@ -464,8 +603,10 @@ function resetUI() {
     step2Div.classList.add('hidden');
     stepLoadHistoryDiv.classList.add('hidden');
     step2Div.classList.add('hidden');
+    stepTopArtistsDiv.classList.add('hidden');
     results.classList.add('hidden');
     artistInfoDiv.classList.add('hidden');
+    cachedArtistInfo.clear(); // Clear cached artist info on user change
 }
 
 function showError(msg) {
