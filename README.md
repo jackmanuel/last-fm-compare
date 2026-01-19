@@ -1,41 +1,38 @@
 # Last.fm Comparator
 
-A web application that compares your personal Last.fm scrobble history with community data to discover your "unusual favourites" by a specific artist.
+Compare your Last.fm scrobble history with community data to discover your "unusual favourites" for any artist.
 
-## Features
+**Live site:** [scrobblegap.com](https://scrobblegap.com/)
 
-- **User Profile**: Fetches and displays Last.fm user details (Playcount, Registration Date, etc.).
-- **Deep Scrobble Analysis**: Fetches all user history (handling pagination and rate limits) to calculate accurate playcounts.
-- **Community Comparison**: Compares your top tracks for a given artist against the global Last.fm community's top tracks.
-- **Ranking Differential**: Highlights songs you listen to disproportionately more than the average listener.
+## Running Locally
 
-## Tech Stack
+1. **Install dependencies**
+   ```bash
+   npm install
+   ```
 
-- **Backend**: Node.js, Express
-- **Frontend**: HTML5, Vanilla CSS (Modern Dark Mode), JavaScript
-- **API**: Last.fm API
+2. **Create a `.env` file** with your Last.fm API key:
+   ```env
+   LASTFM_API_KEY=your_api_key_here
+   ```
 
-## Setup & Run
+3. **Start the server**
+   ```bash
+   npm start
+   ```
+   Or with auto-reload:
+   ```bash
+   npm run dev
+   ```
 
-1.  **Install Dependencies**
-    ```bash
-    npm install
-    ```
+4. **Open** `http://localhost:3000`
 
-2.  **Environment Variables**
-    Create a `.env` file in the root directory and add your Last.fm API key:
-    ```env
-    LASTFM_API_KEY=your_api_key_here
-    ```
+## Caching Scrobbles (Optional)
 
-3.  **Run Application**
-    ```bash
-    npm start
-    ```
-    For development with auto-reload:
-    ```bash
-    npm run dev
-    ```
+When developing locally, you can pre-cache a user's scrobbles to skip slow API fetches:
 
-4.  **Access**
-    Open your browser and navigate to `http://localhost:3000`.
+```bash
+node scripts/cache-scrobbles.js <username>
+```
+
+This downloads all scrobbles for the given user and saves them to `public/cache/<username>.json`. The app automatically loads cached data when running on localhost, making repeated artist comparisons instantaneous.
