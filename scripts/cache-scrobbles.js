@@ -91,7 +91,7 @@ async function main() {
             lastRequestTime = Date.now();
 
             const progress = Math.round((page / totalPages) * 100);
-            process.stdout.write(`\r📄 Fetching page ${page}/${totalPages} (${progress}%)`);
+            process.stdout.write(`\r\x1b[K📄 Fetching page ${page}/${totalPages} (${progress}%)`);
 
             let success = false;
             for (let attempt = 0; attempt <= MAX_RETRIES && !success; attempt++) {
@@ -99,7 +99,7 @@ async function main() {
                     if (attempt > 0) {
                         // Exponential backoff: 1s, 2s, 4s
                         const retryDelay = RETRY_BASE_DELAY_MS * Math.pow(2, attempt - 1);
-                        process.stdout.write(`\r🔄 Retrying page ${page} (attempt ${attempt + 1}/${MAX_RETRIES + 1}) after ${retryDelay}ms...`);
+                        process.stdout.write(`\r\x1b[K🔄 Retrying page ${page} (attempt ${attempt + 1}/${MAX_RETRIES + 1}) after ${retryDelay}ms...`);
                         await new Promise(resolve => setTimeout(resolve, retryDelay));
                         lastRequestTime = Date.now();
                     }
