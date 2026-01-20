@@ -15,12 +15,21 @@ const errorDiv = document.getElementById('error');
 const tracksList = document.getElementById('tracksList');
 const resultHeader = document.getElementById('resultHeader');
 const userInfoDiv = document.getElementById('userInfo');
+const userInfo2Div = document.getElementById('userInfo2');
+const userInfoContainer = document.getElementById('userInfoContainer');
 const stepLoadHistoryDiv = document.getElementById('step-load-history');
 const loadHistoryBtn = document.getElementById('loadHistoryBtn');
 const step2Div = document.getElementById('step2-compare');
 const userStepDiv = document.getElementById('step1-user');
 const stepTopArtistsDiv = document.getElementById('step-top-artists');
 const topArtistsGrid = document.getElementById('topArtistsGrid');
+
+// Mode toggle elements
+const modeCommunityBtn = document.getElementById('modeCommunityBtn');
+const modeUserBtn = document.getElementById('modeUserBtn');
+const user2InputGroup = document.getElementById('user2InputGroup');
+const user1Label = document.getElementById('user1Label');
+const checkUserBtn = document.getElementById('checkUserBtn');
 
 // Filter UI Logic
 const filterCheckbox = document.getElementById('filterEnabled');
@@ -42,19 +51,58 @@ if (filterCheckbox && filterThresholdInput) {
 }
 
 // State
+let comparisonMode = 'community'; // 'community' or 'user'
 let validatedUsername = null;
+let validatedUsername2 = null;
 let cachedUserTracks = [];
+let cachedUser2Tracks = [];
 let globalComparisonData = null; // Store full comparison results
 let cachedArtistInfo = new Map(); // Cache artist info including images
 let cachedArtistTopTracks = new Map(); // Cache artist.getTopTracks results
 
-// Step 1: Check User
+// Mode Toggle Handlers
+function setComparisonMode(mode) {
+    comparisonMode = mode;
+
+    // Update button states
+    modeCommunityBtn.classList.toggle('active', mode === 'community');
+    modeUserBtn.classList.toggle('active', mode === 'user');
+
+    // Show/hide user 2 input
+    if (mode === 'user') {
+        user2InputGroup.classList.remove('hidden');
+        user1Label.textContent = 'User 1';
+        checkUserBtn.textContent = 'Check Users';
+        document.getElementById('username2').setAttribute('required', '');
+    } else {
+        user2InputGroup.classList.add('hidden');
+        user1Label.textContent = 'Last.fm Username';
+        checkUserBtn.textContent = 'Check User';
+        document.getElementById('username2').removeAttribute('required');
+    }
+
+    // Reset state when mode changes
+    resetUI();
+    validatedUsername = null;
+    validatedUsername2 = null;
+    cachedUserTracks = [];
+    cachedUser2Tracks = [];
+    globalComparisonData = null;
+}
+
+modeCommunityBtn.addEventListener('click', () => setComparisonMode('community'));
+modeUserBtn.addEventListener('click', () => setComparisonMode('user'));
+
+// Step 1: Check User(s)
 userForm.addEventListener('submit', async (e) => {
     e.preventDefault();
     const usernameInput = document.getElementById('username');
     const username = usernameInput.value.trim();
+    const username2Input = document.getElementById('username2');
+    const username2 = username2Input.value.trim();
 
     if (!username) return;
+    if (comparisonMode === 'user' && !username2) return;
 
     // Reset UI
     resetUI();
@@ -67,22 +115,49 @@ userForm.addEventListener('submit', async (e) => {
     const progressStats = document.querySelector('.progress-stats');
 
     loadingDiv.classList.remove('hidden');
-    statusText.textContent = "Fetching user info...";
+    statusText.textContent = comparisonMode === 'user' ? "Fetching user info..." : "Fetching user info...";
 
     // Hide progress bar elements during user lookup
     progressBarContainer.style.display = 'none';
     progressStats.style.display = 'none';
 
     try {
-        const data = await getUserInfo(username);
-
-        loadingDiv.classList.add('hidden');
-
-        displayUserInfo(data);
-        validatedUsername = data.username; // Store corrected username case
+        if (comparisonMode === 'community') {
+            // Community mode: single user
+            const data = await getUserInfo(username);
+            loadingDiv.classList.add('hidden');
+            displayUserInfo(data, userInfoDiv);
+            validatedUsername = data.username;
+            userInfoContainer.classList.remove('hidden');
+            userInfo2Div.classList.add('hidden');
+        } else {
+            // User mode: validate both users in parallel
+            statusText.textContent = "Fetching both users' info...";
+            const [data1, data2] = await Promise.all([
+                getUserInfo(username),
+                getUserInfo(username2)
+            ]);
+            loadingDiv.classList.add('hidden');
+            displayUserInfo(data1, userInfoDiv);
+            displayUserInfo(data2, userInfo2Div);
+            validatedUsername = data1.username;
+            validatedUsername2 = data2.username;
+            userInfoContainer.classList.remove('hidden');
+            userInfo2Div.classList.remove('hidden');
+        }
 
         // Show Load History Step
         stepLoadHistoryDiv.classList.remove('hidden');
+        // Update button text for user mode
+        if (comparisonMode === 'user') {
+            loadHistoryBtn.textContent = 'Load Scrobble Histories';
+            document.querySelector('#step-load-history .hint-text').textContent =
+                'This will fetch all scrobbles for both users. This may take a few minutes.';
+        } else {
+            loadHistoryBtn.textContent = 'Load Scrobble History';
+            document.querySelector('#step-load-history .hint-text').textContent =
+                'This will fetch all of your scrobbles. This may take a few minutes.';
+        }
         userStepDiv.classList.add('hidden');
 
     } catch (err) {
@@ -94,15 +169,25 @@ userForm.addEventListener('submit', async (e) => {
 // Step 2: Load History
 loadHistoryBtn.addEventListener('click', async () => {
     if (!validatedUsername) return;
+    if (comparisonMode === 'user' && !validatedUsername2) return;
 
     // Reset State
     cachedUserTracks = [];
+    cachedUser2Tracks = [];
     stepLoadHistoryDiv.classList.add('hidden');
 
-    await fetchAllScrobbles();
+    if (comparisonMode === 'user') {
+        // Parallel fetch for both users
+        await fetchAllScrobblesParallel();
+    } else {
+        // Single user fetch
+        await fetchAllScrobbles(validatedUsername, (tracks) => {
+            cachedUserTracks = tracks;
+        }, 'User 1');
+    }
 });
 
-async function fetchAllScrobbles() {
+async function fetchAllScrobbles(username = validatedUsername, setTracks = (tracks) => { cachedUserTracks = tracks; }, userLabel = '') {
     // Clear any previous error
     errorDiv.classList.add('hidden');
 
@@ -115,22 +200,27 @@ async function fetchAllScrobbles() {
 
     loadingDiv.classList.remove('hidden');
 
+    let collectedTracks = [];
+
     // DEV MODE: Check for cached scrobbles when running on localhost
     if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
         try {
-            statusText.textContent = 'Checking for cached scrobbles...';
-            const cacheResponse = await fetch(`/cache/${validatedUsername.toLowerCase()}.json`);
+            statusText.textContent = userLabel ? `Checking for cached scrobbles (${userLabel})...` : 'Checking for cached scrobbles...';
+            const cacheResponse = await fetch(`/cache/${username.toLowerCase()}.json`);
             if (cacheResponse.ok) {
-                cachedUserTracks = await cacheResponse.json();
-                console.log(`🚀 Loaded ${cachedUserTracks.length.toLocaleString()} scrobbles from cache`);
+                collectedTracks = await cacheResponse.json();
+                console.log(`🚀 Loaded ${collectedTracks.length.toLocaleString()} scrobbles from cache for ${username}`);
+                setTracks(collectedTracks);
 
                 // Skip to showing results (same as end of normal fetch)
                 loadingDiv.classList.add('hidden');
                 step2Div.classList.remove('hidden');
 
-                // Still fetch top artists with images
-                await loadTopArtistsFromCache();
-                return;
+                // Still fetch top artists with images (only for user 1)
+                if (!userLabel || userLabel === 'User 1') {
+                    await loadTopArtistsFromCache();
+                }
+                return collectedTracks;
             }
         } catch (e) {
             // No cache found, proceed with normal API fetch
@@ -147,13 +237,13 @@ async function fetchAllScrobbles() {
     progressBar.style.width = '0%';
     progressText.textContent = '0%';
     pagesText.textContent = 'Initializing...';
-    statusText.textContent = 'Fetching full listening history...';
+    statusText.textContent = userLabel ? `Fetching ${userLabel}'s listening history...` : 'Fetching full listening history...';
 
     let failedPages = []; // Track pages that failed even after retries
 
     try {
         // 1. Fetch Page 1 to get total pages
-        const page1Data = await getRecentTracks(validatedUsername, SCROBBLE_PAGE_LIMIT, 1);
+        const page1Data = await getRecentTracks(username, SCROBBLE_PAGE_LIMIT, 1);
 
         const recentTracksIdx = page1Data.recenttracks;
         if (!recentTracksIdx) throw new Error('Invalid response from Last.fm');
@@ -162,7 +252,7 @@ async function fetchAllScrobbles() {
 
         // Add page 1 tracks
         if (Array.isArray(recentTracksIdx.track)) {
-            cachedUserTracks.push(...recentTracksIdx.track);
+            collectedTracks.push(...recentTracksIdx.track);
         }
 
         // Update Progress
@@ -192,10 +282,10 @@ async function fetchAllScrobbles() {
                         lastRequestTime = Date.now();
                     }
 
-                    const data = await getRecentTracks(validatedUsername, SCROBBLE_PAGE_LIMIT, page);
+                    const data = await getRecentTracks(username, SCROBBLE_PAGE_LIMIT, page);
 
                     if (data.recenttracks && Array.isArray(data.recenttracks.track)) {
-                        cachedUserTracks.push(...data.recenttracks.track);
+                        collectedTracks.push(...data.recenttracks.track);
                     }
                     success = true;
                 } catch (pageError) {
@@ -215,12 +305,15 @@ async function fetchAllScrobbles() {
         // (can happen if browser retries pages or resumes from sleep)
         // Also filters out "now playing" tracks which have no timestamp
         const seen = new Set();
-        cachedUserTracks = cachedUserTracks.filter(track => {
+        collectedTracks = collectedTracks.filter(track => {
             if (!track.date?.uts) return false; // Ignore "now playing" tracks
             if (seen.has(track.date.uts)) return false;
             seen.add(track.date.uts);
             return true;
         });
+
+        // Store in appropriate cache
+        setTracks(collectedTracks);
 
         // Done Loading
         loadingDiv.classList.add('hidden');
@@ -229,43 +322,54 @@ async function fetchAllScrobbles() {
         // Show warning if some pages failed
         if (failedPages.length > 0) {
             const failedPercent = Math.round((failedPages.length / totalPages) * 100);
-            showWarning(`Warning: ${failedPages.length} of ${totalPages} pages failed to load (~${failedPercent}% of your scrobbles may be missing). Results may be incomplete.`);
+            const warn = userLabel ? `${userLabel}: ` : '';
+            showWarning(`${warn}Warning: ${failedPages.length} of ${totalPages} pages failed to load (~${failedPercent}% of scrobbles may be missing). Results may be incomplete.`);
         }
 
-        // Compute top 10 artists from scrobble corpus and fetch their info
-        try {
-            const topArtists = getTopArtistsFromScrobbles(cachedUserTracks, 10);
-            if (topArtists.length > 0) {
-                // Immediately show skeleton placeholders and hide loading message
-                displayTopArtistSkeletons(topArtists.length);
+        // Compute top 10 artists from scrobble corpus and fetch their info (only for user 1)
+        if (!userLabel || userLabel === 'User 1') {
+            try {
+                const topArtists = getTopArtistsFromScrobbles(collectedTracks, 10);
+                if (topArtists.length > 0) {
+                    // Immediately show skeleton placeholders and hide loading message
+                    displayTopArtistSkeletons(topArtists.length);
 
-                // Fetch artist info with rate limiting (5 requests per second = 200ms delay)
-                const artistsWithInfo = [];
-                for (let i = 0; i < topArtists.length; i++) {
-                    const artist = topArtists[i];
-                    try {
-                        const artistInfo = await fetchArtistInfo(artist.name);
-                        if (artistInfo) {
-                            // Cache the artist info for later use during comparison
-                            cachedArtistInfo.set(artist.name.toLowerCase(), artistInfo);
+                    // Fetch artist info with rate limiting (5 requests per second = 200ms delay)
+                    const artistsWithInfo = [];
+                    for (let i = 0; i < topArtists.length; i++) {
+                        const artist = topArtists[i];
+                        try {
+                            const artistInfo = await fetchArtistInfo(artist.name);
+                            if (artistInfo) {
+                                // Cache the artist info for later use during comparison
+                                cachedArtistInfo.set(artist.name.toLowerCase(), artistInfo);
 
-                            // Get image from artist info
-                            let image = '/default_pfp.png';
-                            if (artistInfo.image) {
-                                const imgObj = artistInfo.image.find(img => img.size === 'large')
-                                    || artistInfo.image.find(img => img.size === 'medium')
-                                    || artistInfo.image[0];
-                                if (imgObj?.['#text'] && imgObj['#text'].trim() !== '') {
-                                    image = imgObj['#text'];
+                                // Get image from artist info
+                                let image = '/default_pfp.png';
+                                if (artistInfo.image) {
+                                    const imgObj = artistInfo.image.find(img => img.size === 'large')
+                                        || artistInfo.image.find(img => img.size === 'medium')
+                                        || artistInfo.image[0];
+                                    if (imgObj?.['#text'] && imgObj['#text'].trim() !== '') {
+                                        image = imgObj['#text'];
+                                    }
                                 }
+                                artistsWithInfo.push({
+                                    name: artistInfo.name, // Use canonical name
+                                    playcount: artist.playcount,
+                                    url: artistInfo.url,
+                                    image: image
+                                });
+                            } else {
+                                artistsWithInfo.push({
+                                    name: artist.name,
+                                    playcount: artist.playcount,
+                                    url: `https://www.last.fm/music/${encodeURIComponent(artist.name)}`,
+                                    image: '/default_pfp.png'
+                                });
                             }
-                            artistsWithInfo.push({
-                                name: artistInfo.name, // Use canonical name
-                                playcount: artist.playcount,
-                                url: artistInfo.url,
-                                image: image
-                            });
-                        } else {
+                        } catch (e) {
+                            console.warn(`Failed to fetch info for ${artist.name}:`, e);
                             artistsWithInfo.push({
                                 name: artist.name,
                                 playcount: artist.playcount,
@@ -273,34 +377,186 @@ async function fetchAllScrobbles() {
                                 image: '/default_pfp.png'
                             });
                         }
-                    } catch (e) {
-                        console.warn(`Failed to fetch info for ${artist.name}:`, e);
-                        artistsWithInfo.push({
-                            name: artist.name,
-                            playcount: artist.playcount,
-                            url: `https://www.last.fm/music/${encodeURIComponent(artist.name)}`,
-                            image: '/default_pfp.png'
-                        });
+
+                        // Rate limit delay between artist info requests
+                        if (i < topArtists.length - 1) {
+                            await new Promise(resolve => setTimeout(resolve, RATE_LIMIT_DELAY_MS));
+                        }
                     }
 
-                    // Rate limit delay between artist info requests
-                    if (i < topArtists.length - 1) {
-                        await new Promise(resolve => setTimeout(resolve, RATE_LIMIT_DELAY_MS));
-                    }
+                    displayTopArtists(artistsWithInfo);
                 }
-
-                displayTopArtists(artistsWithInfo);
+            } catch (topArtistsErr) {
+                console.warn('Failed to process top artists:', topArtistsErr);
+                // Non-critical error, just don't show the grid
             }
-        } catch (topArtistsErr) {
-            console.warn('Failed to process top artists:', topArtistsErr);
-            // Non-critical error, just don't show the grid
         }
+
+        return collectedTracks;
 
     } catch (err) {
         loadingDiv.classList.add('hidden');
         stepLoadHistoryDiv.classList.remove('hidden'); // Show button again on fail
         showError("Failed to load history. Please try again.");
+        return [];
     }
+}
+
+// Parallel fetch for user-to-user mode
+async function fetchAllScrobblesParallel() {
+    // Clear any previous error
+    errorDiv.classList.add('hidden');
+
+    const loadingDiv = document.getElementById('loading');
+    const statusText = document.querySelector('.progress-status');
+    const singleUserProgress = document.getElementById('singleUserProgress');
+    const dualUserProgress = document.getElementById('dualUserProgress');
+
+    // Get dual progress bar elements
+    const progressBar1 = document.getElementById('progressBar1');
+    const progressBar2 = document.getElementById('progressBar2');
+    const pagesText1 = document.getElementById('pagesText1');
+    const pagesText2 = document.getElementById('pagesText2');
+    const user1ProgressLabel = document.getElementById('user1ProgressLabel');
+    const user2ProgressLabel = document.getElementById('user2ProgressLabel');
+
+    loadingDiv.classList.remove('hidden');
+    statusText.textContent = 'Fetching scrobbles for both users...';
+
+    // Show dual progress bars, hide single
+    singleUserProgress.classList.add('hidden');
+    dualUserProgress.classList.remove('hidden');
+
+    // Set usernames as labels
+    user1ProgressLabel.textContent = validatedUsername;
+    user2ProgressLabel.textContent = validatedUsername2;
+
+    // Reset progress bars
+    progressBar1.style.width = '0%';
+    progressBar2.style.width = '0%';
+    pagesText1.textContent = '...';
+    pagesText2.textContent = '...';
+
+    try {
+        // Fetch both users in parallel with progress callbacks
+        const results = await Promise.all([
+            fetchUserScrobblesWithProgress(validatedUsername, (current, total) => {
+                const pct = Math.round((current / total) * 100);
+                progressBar1.style.width = `${pct}%`;
+                pagesText1.textContent = `${current}/${total}`;
+            }),
+            fetchUserScrobblesWithProgress(validatedUsername2, (current, total) => {
+                const pct = Math.round((current / total) * 100);
+                progressBar2.style.width = `${pct}%`;
+                pagesText2.textContent = `${current}/${total}`;
+            })
+        ]);
+
+        cachedUserTracks = results[0];
+        cachedUser2Tracks = results[1];
+
+        // Reset progress visibility
+        singleUserProgress.classList.remove('hidden');
+        dualUserProgress.classList.add('hidden');
+
+        loadingDiv.classList.add('hidden');
+        step2Div.classList.remove('hidden');
+
+        console.log(`✅ User 1 (${validatedUsername}): ${cachedUserTracks.length.toLocaleString()} scrobbles`);
+        console.log(`✅ User 2 (${validatedUsername2}): ${cachedUser2Tracks.length.toLocaleString()} scrobbles`);
+
+        // Load top artists for User 1 only
+        await loadTopArtistsFromCache();
+
+    } catch (err) {
+        singleUserProgress.classList.remove('hidden');
+        dualUserProgress.classList.add('hidden');
+        loadingDiv.classList.add('hidden');
+        stepLoadHistoryDiv.classList.remove('hidden');
+        showError("Failed to load histories. Please try again.");
+    }
+}
+
+// Scrobble fetcher with progress callback for parallel mode
+async function fetchUserScrobblesWithProgress(username, onProgress) {
+    let collectedTracks = [];
+
+    // DEV MODE: Check for cached scrobbles
+    if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+        try {
+            const cachePath = `/cache/${username.toLowerCase()}.json`;
+            console.log(`[${username}] Checking cache at ${cachePath}...`);
+            const cacheResponse = await fetch(cachePath);
+            if (cacheResponse.ok) {
+                collectedTracks = await cacheResponse.json();
+                console.log(`🚀 [${username}] Loaded ${collectedTracks.length.toLocaleString()} scrobbles from cache`);
+                onProgress(1, 1); // Show complete
+                return collectedTracks;
+            } else {
+                console.log(`[${username}] Cache response not OK: ${cacheResponse.status}`);
+            }
+        } catch (e) {
+            console.log(`[${username}] Cache fetch error:`, e.message);
+        }
+    }
+
+    // Fetch page 1 to get total pages
+    const page1Data = await getRecentTracks(username, SCROBBLE_PAGE_LIMIT, 1);
+    const recentTracksIdx = page1Data.recenttracks;
+    if (!recentTracksIdx) throw new Error(`Invalid response for ${username}`);
+
+    const totalPages = parseInt(recentTracksIdx['@attr'].totalPages);
+
+    if (Array.isArray(recentTracksIdx.track)) {
+        collectedTracks.push(...recentTracksIdx.track);
+    }
+
+    onProgress(1, totalPages);
+    console.log(`[${username}] Starting fetch: ${totalPages} pages`);
+
+    let lastRequestTime = Date.now();
+
+    for (let page = 2; page <= totalPages; page++) {
+        const elapsed = Date.now() - lastRequestTime;
+        if (elapsed < SCROBBLE_FETCH_DELAY_MS) {
+            await new Promise(resolve => setTimeout(resolve, SCROBBLE_FETCH_DELAY_MS - elapsed));
+        }
+        lastRequestTime = Date.now();
+
+        let success = false;
+        for (let attempt = 0; attempt <= MAX_RETRIES && !success; attempt++) {
+            try {
+                if (attempt > 0) {
+                    const retryDelay = RETRY_BASE_DELAY_MS * attempt;
+                    await new Promise(resolve => setTimeout(resolve, retryDelay));
+                    lastRequestTime = Date.now();
+                }
+
+                const data = await getRecentTracks(username, SCROBBLE_PAGE_LIMIT, page);
+                if (data.recenttracks && Array.isArray(data.recenttracks.track)) {
+                    collectedTracks.push(...data.recenttracks.track);
+                }
+                success = true;
+            } catch (pageError) {
+                console.warn(`[${username}] Failed page ${page}, attempt ${attempt + 1}/${MAX_RETRIES + 1}`);
+            }
+        }
+
+        // Update progress
+        onProgress(page, totalPages);
+    }
+
+    // Deduplicate
+    const seen = new Set();
+    collectedTracks = collectedTracks.filter(track => {
+        if (!track.date?.uts) return false;
+        if (seen.has(track.date.uts)) return false;
+        seen.add(track.date.uts);
+        return true;
+    });
+
+    console.log(`✅ [${username}] Complete: ${collectedTracks.length.toLocaleString()} scrobbles`);
+    return collectedTracks;
 }
 
 // Compute top N artists from scrobble data
@@ -398,6 +654,12 @@ compareForm.addEventListener('submit', async (e) => {
         return;
     }
 
+    // For user mode, also check user 2
+    if (comparisonMode === 'user' && cachedUser2Tracks.length === 0) {
+        showError("User 2's history not loaded. Please load scrobble histories.");
+        return;
+    }
+
     const artist = document.getElementById('artist').value.trim();
 
     // Reset Results UI
@@ -419,7 +681,7 @@ compareForm.addEventListener('submit', async (e) => {
     try {
         let dataArtistName = "";
 
-        // 1. Filter user tracks for the artist
+        // 1. Filter user 1 tracks for the artist
         const userArtistTracks = cachedUserTracks.filter(track => {
             const trackArtist = track.artist['#text'] || track.artist.name;
             return trackArtist && trackArtist.toLowerCase() === artist.toLowerCase();
@@ -427,61 +689,122 @@ compareForm.addEventListener('submit', async (e) => {
 
         if (userArtistTracks.length === 0) {
             loadingDiv.classList.add('hidden');
-            showError("User hasn't listened to this artist or artist not found.");
+            const errorUsername = validatedUsername || 'User';
+            if (comparisonMode === 'user') {
+                showError(`${errorUsername} hasn't listened to this artist. Try a different artist that both users have listened to.`);
+            } else {
+                showError(`${errorUsername} hasn't listened to this artist or artist not found.`);
+            }
             return;
         }
 
-        // 2. Check caches for artist info and top tracks, otherwise fetch
-        const artistKey = artist.toLowerCase();
-        let artistInfoData = cachedArtistInfo.get(artistKey);
-        let communityData = cachedArtistTopTracks.get(artistKey);
+        // Variables for comparison ranking
+        let comparisonRankMap = new Map();
+        let rankLabel = 'communityRank'; // Will be 'user2Rank' in user mode
+        let user2ArtistScrobbleCount = null; // For artist card display
 
-        if (artistInfoData && communityData) {
-            // Both cached - no API calls needed
-            console.log(`Using cached data for ${artist}`);
-        } else if (artistInfoData && !communityData) {
-            // Only need to fetch top tracks
-            communityData = await getArtistTopTracks(artist);
-            cachedArtistTopTracks.set(artistKey, communityData);
-        } else if (!artistInfoData && communityData) {
-            // Only need to fetch artist info (rare case)
-            artistInfoData = await fetchArtistInfo(artist);
-            if (artistInfoData) {
-                cachedArtistInfo.set(artistKey, artistInfoData);
+        if (comparisonMode === 'user') {
+            // USER MODE: Build ranking from User 2's scrobbles
+            const user2ArtistTracks = cachedUser2Tracks.filter(track => {
+                const trackArtist = track.artist['#text'] || track.artist.name;
+                return trackArtist && trackArtist.toLowerCase() === artist.toLowerCase();
+            });
+
+            if (user2ArtistTracks.length === 0) {
+                loadingDiv.classList.add('hidden');
+                showError(`${validatedUsername2} hasn't listened to this artist. Try a different artist that both users have listened to.`);
+                return;
+            }
+
+            user2ArtistScrobbleCount = user2ArtistTracks.length;
+
+            // Aggregate User 2's scrobbles by song name
+            const user2TrackMap = new Map();
+            user2ArtistTracks.forEach(track => {
+                const lowerName = track.name.toLowerCase();
+                if (user2TrackMap.has(lowerName)) {
+                    user2TrackMap.get(lowerName).playcount++;
+                } else {
+                    user2TrackMap.set(lowerName, {
+                        name: track.name,
+                        playcount: 1
+                    });
+                }
+            });
+
+            // Sort by playcount and build ranking
+            const user2Sorted = Array.from(user2TrackMap.values())
+                .sort((a, b) => b.playcount - a.playcount);
+
+            user2Sorted.forEach((track, index) => {
+                comparisonRankMap.set(track.name.toLowerCase(), index + 1);
+            });
+
+            rankLabel = 'user2Rank';
+            dataArtistName = artist; // No API call for artist info in user mode
+
+            // Still try to get artist info for display (but don't block on failure)
+            try {
+                const artistKey = artist.toLowerCase();
+                let artistInfoData = cachedArtistInfo.get(artistKey);
+                if (!artistInfoData) {
+                    artistInfoData = await fetchArtistInfo(artist);
+                    if (artistInfoData) {
+                        cachedArtistInfo.set(artistKey, artistInfoData);
+                    }
+                }
+                if (artistInfoData) {
+                    displayArtistInfo(artistInfoData, user2ArtistScrobbleCount);
+                    dataArtistName = artistInfoData.name;
+                } else {
+                    artistInfoDiv.classList.add('hidden');
+                }
+            } catch (e) {
+                console.warn('Failed to fetch artist info for user mode:', e);
+                artistInfoDiv.classList.add('hidden');
             }
         } else {
-            // Fetch both in parallel
-            [communityData, artistInfoData] = await Promise.all([
-                getArtistTopTracks(artist),
-                fetchArtistInfo(artist)
-            ]);
-            // Cache both for future use
-            cachedArtistTopTracks.set(artistKey, communityData);
+            // COMMUNITY MODE: Use getArtistTopTracks API (original logic)
+            const artistKey = artist.toLowerCase();
+            let artistInfoData = cachedArtistInfo.get(artistKey);
+            let communityData = cachedArtistTopTracks.get(artistKey);
+
+            if (artistInfoData && communityData) {
+                console.log(`Using cached data for ${artist}`);
+            } else if (artistInfoData && !communityData) {
+                communityData = await getArtistTopTracks(artist);
+                cachedArtistTopTracks.set(artistKey, communityData);
+            } else if (!artistInfoData && communityData) {
+                artistInfoData = await fetchArtistInfo(artist);
+                if (artistInfoData) {
+                    cachedArtistInfo.set(artistKey, artistInfoData);
+                }
+            } else {
+                [communityData, artistInfoData] = await Promise.all([
+                    getArtistTopTracks(artist),
+                    fetchArtistInfo(artist)
+                ]);
+                cachedArtistTopTracks.set(artistKey, communityData);
+                if (artistInfoData) {
+                    cachedArtistInfo.set(artistKey, artistInfoData);
+                }
+            }
+
+            const communityTracks = communityData.toptracks?.track || [];
+            communityTracks.forEach((track, index) => {
+                comparisonRankMap.set(track.name.toLowerCase(), index + 1);
+            });
+
             if (artistInfoData) {
-                cachedArtistInfo.set(artistKey, artistInfoData);
+                displayArtistInfo(artistInfoData);
+                dataArtistName = artistInfoData.name;
+            } else {
+                dataArtistName = artist;
+                artistInfoDiv.classList.add('hidden');
             }
         }
 
-        const communityTracks = communityData.toptracks?.track || [];
-
-        // Display Artist Info Immediately (if found)
-        if (artistInfoData) {
-            displayArtistInfo(artistInfoData);
-            // Update the display artist name to the official one
-            dataArtistName = artistInfoData.name;
-        } else {
-            // Fallback if API fails
-            dataArtistName = artist;
-            artistInfoDiv.classList.add('hidden');
-        }
-
-        // 3. Process and Compare: AGGREGATION & RANKING
-        const communityRankMap = new Map();
-        communityTracks.forEach((track, index) => {
-            communityRankMap.set(track.name.toLowerCase(), index + 1);
-        });
-
-        // Aggregate User Scrobbles by Song Name
+        // 3. Aggregate User 1 Scrobbles by Song Name
         const trackMap = new Map();
 
         userArtistTracks.forEach(track => {
@@ -499,23 +822,25 @@ compareForm.addEventListener('submit', async (e) => {
             }
         });
 
-        // Convert to array and sort by playcount (User Rank)
+        // Convert to array and sort by playcount (User 1 Rank)
         const aggregatedTracks = Array.from(trackMap.values());
         aggregatedTracks.sort((a, b) => b.playcount - a.playcount);
 
+        // Determine max rank for "not found" tracks
+        const maxRank = comparisonMode === 'user' ? comparisonRankMap.size + 1 : 101;
+
         // Calculate Differentials
         const comparison = aggregatedTracks.map((userTrack, userIndex) => {
-            const userRank = userIndex + 1; // 1 = most played
-            const communityRank = communityRankMap.get(userTrack.name.toLowerCase());
-
-            const numericCommunityRank = communityRank || 101;
+            const userRank = userIndex + 1;
+            const compareRank = comparisonRankMap.get(userTrack.name.toLowerCase());
+            const numericCompareRank = compareRank || maxRank;
 
             return {
                 name: userTrack.name,
                 userRank: userRank,
-                communityRank: communityRank || '>100',
+                compareRank: compareRank || `>${maxRank - 1}`,
                 playcount: userTrack.playcount,
-                differential: numericCommunityRank - userRank,
+                differential: numericCompareRank - userRank,
                 url: userTrack.url,
                 image: userTrack.image
             };
@@ -524,10 +849,12 @@ compareForm.addEventListener('submit', async (e) => {
         // Sort by differential descending
         comparison.sort((a, b) => b.differential - a.differential);
 
-        // Store in global state
+        // Store in global state with mode info
         globalComparisonData = {
             artist: dataArtistName,
-            tracks: comparison
+            tracks: comparison,
+            mode: comparisonMode,
+            user2Name: validatedUsername2 || null
         };
 
         loadingDiv.classList.add('hidden');
@@ -549,7 +876,7 @@ async function fetchArtistInfo(artist) {
     }
 }
 
-function displayArtistInfo(artistData) {
+function displayArtistInfo(artistData, user2ScrobbleCount = null) {
     if (!artistData) {
         artistInfoDiv.classList.add('hidden');
         return;
@@ -565,6 +892,17 @@ function displayArtistInfo(artistData) {
 
     // Dynamic label for user scrobbles
     const userLabel = validatedUsername ? `${validatedUsername}'s Scrobbles` : 'Your Scrobbles';
+
+    // Build user 2 scrobble stats HTML if in user mode
+    let user2StatsHtml = '';
+    if (user2ScrobbleCount !== null && validatedUsername2) {
+        user2StatsHtml = `
+            <div class="stat-item user-stat-highlight user2-stat">
+                <span class="stat-value">${user2ScrobbleCount.toLocaleString()}</span>
+                <span class="stat-label">${validatedUsername2}'s Scrobbles</span>
+            </div>
+        `;
+    }
 
     artistInfoDiv.innerHTML = `
         <img src="${image}" alt="${name}" class="artist-header-image" onerror="this.onerror=null;this.src='/default_pfp.png';">
@@ -585,6 +923,7 @@ function displayArtistInfo(artistData) {
                     <span class="stat-value">${userPlaycount}</span>
                     <span class="stat-label">${userLabel}</span>
                 </div>
+                ${user2StatsHtml}
             </div>
         </div>
     `;
@@ -648,12 +987,18 @@ function updateProgress(currentPage, totalPages, bar, text, pagesText) {
     pagesText.textContent = `Page ${currentPage} of ${totalPages}`;
 }
 
-function displayUserInfo(user) {
+function displayUserInfo(user, container = userInfoDiv, label = null) {
     if (!user) return;
     const registeredDate = new Date(user.registered * 1000);
     const registeredYear = registeredDate.getFullYear();
 
-    userInfoDiv.innerHTML = `
+    // Both users get a change button
+    const isUser1 = container === userInfoDiv;
+    const displayLabel = label ? `<div class="user-label">${label}</div>` : '';
+    const changeBtn = `<button class="resetUserBtn secondary-btn" title="Change User">Change</button>`;
+
+    container.innerHTML = `
+        ${displayLabel}
         <div class="user-info-content">
             <img src="${user.image}" alt="${user.username}" class="user-pfp" onerror="this.onerror=null;this.src='/default_pfp.png';">
             <div class="user-details">
@@ -665,15 +1010,21 @@ function displayUserInfo(user) {
                 <div class="scrobble-count">${parseInt(user.playcount).toLocaleString()}</div>
                 <div class="scrobble-label">SCROBBLES</div>
             </div>
-            <button id="resetUserBtn" class="secondary-btn" title="Change User">Change</button>
+            ${changeBtn}
         </div>
     `;
-    userInfoDiv.classList.remove('hidden');
+    container.classList.remove('hidden');
 
-    document.getElementById('resetUserBtn').addEventListener('click', () => {
+    // Add reset listener - resets both users and returns to step 1
+    container.querySelector('.resetUserBtn').addEventListener('click', () => {
         validatedUsername = null;
+        validatedUsername2 = null;
         cachedUserTracks = [];
-        userInfoDiv.classList.add('hidden');
+        cachedUser2Tracks = [];
+        userInfoContainer.classList.add('hidden');
+        userInfoDiv.innerHTML = '';
+        userInfo2Div.innerHTML = '';
+        userInfo2Div.classList.add('hidden');
         stepLoadHistoryDiv.classList.add('hidden');
         step2Div.classList.add('hidden');
         stepTopArtistsDiv.classList.add('hidden');
@@ -743,16 +1094,20 @@ function displayTopArtists(artists) {
 
 function resetUI() {
     errorDiv.classList.add('hidden');
-    userInfoDiv.classList.add('hidden');
-    stepLoadHistoryDiv.classList.add('hidden');
-    step2Div.classList.add('hidden');
+    userInfoContainer.classList.add('hidden');
+    userInfoDiv.innerHTML = '';
+    userInfo2Div.innerHTML = '';
+    userInfo2Div.classList.add('hidden');
     stepLoadHistoryDiv.classList.add('hidden');
     step2Div.classList.add('hidden');
     stepTopArtistsDiv.classList.add('hidden');
     results.classList.add('hidden');
     artistInfoDiv.classList.add('hidden');
-    cachedArtistInfo.clear(); // Clear cached artist info on user change
-    cachedArtistTopTracks.clear(); // Clear cached top tracks on user change
+    cachedArtistInfo.clear();
+    cachedArtistTopTracks.clear();
+    // Hide warning
+    const warningDiv = document.getElementById('warning');
+    if (warningDiv) warningDiv.classList.add('hidden');
 }
 
 function showError(msg) {
@@ -817,9 +1172,13 @@ function renderColumnView(tracks) {
         .sort((a, b) => a.differential - b.differential) // Most negative first
         .slice(0, 10);
 
-    createColumn("Top Positive (+)", "column-positive", positiveTracks, "You like more than the community");
+    // Dynamic labels based on comparison mode
+    const isUserMode = globalComparisonData?.mode === 'user';
+    const otherLabel = isUserMode ? (globalComparisonData?.user2Name || 'User 2') : 'the community';
+
+    createColumn("Top Positive (+)", "column-positive", positiveTracks, `You like more than ${otherLabel}`);
     createColumn("Neutral (~0)", "column-neutral", neutralTracks, "&nbsp;");
-    createColumn("Top Negative (-)", "column-negative", negativeTracks, "The community likes more than you");
+    createColumn("Top Negative (-)", "column-negative", negativeTracks, `${isUserMode ? globalComparisonData?.user2Name || 'User 2' : 'The community'} likes more than you`);
 }
 
 function createColumn(title, className, tracks, subtext = null) {
@@ -857,9 +1216,14 @@ function createTrackCard(track, compact = false) {
 
     const imgUrl = track.image || '/default_pfp.png';
 
+    // Dynamic labels based on comparison mode
+    const isUserMode = globalComparisonData?.mode === 'user';
+    const otherLabel = isUserMode ? (globalComparisonData?.user2Name || 'User 2') : 'Community';
+    const compareRankValue = track.compareRank || track.communityRank || '>100'; // Support both property names
+
     const metaContent = compact
-        ? `#<strong>${track.userRank}</strong> vs #<strong>${track.communityRank}</strong> | ${track.playcount} scrobbles`
-        : `Rankings: #<strong>${track.userRank}</strong> (You) vs #<strong>${track.communityRank}</strong> (Community)<br>Scrobbles: ${track.playcount}`;
+        ? `#<strong>${track.userRank}</strong> vs #<strong>${compareRankValue}</strong> | ${track.playcount} scrobbles`
+        : `Rankings: #<strong>${track.userRank}</strong> (You) vs #<strong>${compareRankValue}</strong> (${otherLabel})<br>Scrobbles: ${track.playcount}`;
 
     card.innerHTML = `
         <img src="${imgUrl}" alt="${track.name}" class="track-image" onerror="this.onerror=null;this.src='/default_pfp.png';">

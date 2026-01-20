@@ -78,6 +78,10 @@ async function main() {
         let lastRequestTime = Date.now();
 
         // Fetch remaining pages with progress
+        const MAX_RETRIES = 3;
+        const RETRY_BASE_DELAY_MS = 1000;
+        let failedPages = [];
+
         for (let page = 2; page <= totalPages; page++) {
             // Smart rate limiting: only wait if we're going faster than the limit
             const elapsed = Date.now() - lastRequestTime;
@@ -89,13 +93,28 @@ async function main() {
             const progress = Math.round((page / totalPages) * 100);
             process.stdout.write(`\r📄 Fetching page ${page}/${totalPages} (${progress}%)`);
 
-            try {
-                const data = await fetchPage(username, page);
-                if (data.recenttracks && Array.isArray(data.recenttracks.track)) {
-                    allTracks.push(...data.recenttracks.track);
+            let success = false;
+            for (let attempt = 0; attempt <= MAX_RETRIES && !success; attempt++) {
+                try {
+                    if (attempt > 0) {
+                        // Exponential backoff: 1s, 2s, 4s
+                        const retryDelay = RETRY_BASE_DELAY_MS * Math.pow(2, attempt - 1);
+                        process.stdout.write(`\r🔄 Retrying page ${page} (attempt ${attempt + 1}/${MAX_RETRIES + 1}) after ${retryDelay}ms...`);
+                        await new Promise(resolve => setTimeout(resolve, retryDelay));
+                        lastRequestTime = Date.now();
+                    }
+
+                    const data = await fetchPage(username, page);
+                    if (data.recenttracks && Array.isArray(data.recenttracks.track)) {
+                        allTracks.push(...data.recenttracks.track);
+                    }
+                    success = true;
+                } catch (err) {
+                    if (attempt === MAX_RETRIES) {
+                        console.warn(`\n⚠️  Page ${page} failed after ${MAX_RETRIES + 1} attempts: ${err.message}`);
+                        failedPages.push(page);
+                    }
                 }
-            } catch (err) {
-                console.warn(`\n⚠️  Failed to fetch page ${page}: ${err.message}`);
             }
         }
 
@@ -111,6 +130,13 @@ async function main() {
         });
 
         console.log(`✅ Fetched ${dedupedTracks.length.toLocaleString()} unique scrobbles`);
+
+        // Show warning if some pages failed
+        if (failedPages.length > 0) {
+            const failedPercent = Math.round((failedPages.length / totalPages) * 100);
+            console.log(`⚠️  ${failedPages.length} pages failed after retries (~${failedPercent}% of scrobbles may be missing)`);
+            console.log(`   Failed pages: ${failedPages.slice(0, 10).join(', ')}${failedPages.length > 10 ? '...' : ''}`);
+        }
 
         // Save to cache file
         const cacheFile = path.join(cacheDir, `${username.toLowerCase()}.json`);

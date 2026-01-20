@@ -33,19 +33,43 @@
 
         <main>
             <div id="step1-user">
+                <!-- Mode Selection Toggle -->
+                <div class="mode-toggle">
+                    <button type="button" id="modeCommunityBtn" class="mode-btn active">Compare with Community</button>
+                    <button type="button" id="modeUserBtn" class="mode-btn">Compare with Another User</button>
+                </div>
+
                 <form id="userForm">
-                    <div class="input-group">
-                        <label for="username">Last.fm Username</label>
-                        <div class="input-row">
-                            <input type="text" id="username" placeholder="e.g. JackMan3141" required>
-                            <button type="submit" id="checkUserBtn">Check User</button>
+                    <div class="users-input-container">
+                        <!-- User 1 Input (always visible) -->
+                        <div class="input-group user-input-group">
+                            <label for="username" id="user1Label">Last.fm Username</label>
+                            <div class="input-row">
+                                <input type="text" id="username" placeholder="e.g. JackMan3141" required>
+                            </div>
                         </div>
+                        <!-- User 2 Input (only visible in user mode) -->
+                        <div class="input-group user-input-group hidden" id="user2InputGroup">
+                            <label for="username2">User 2</label>
+                            <div class="input-row">
+                                <input type="text" id="username2" placeholder="e.g. soabove">
+                            </div>
+                        </div>
+                    </div>
+                    <div class="check-users-btn-container">
+                        <button type="submit" id="checkUserBtn">Check User</button>
                     </div>
                 </form>
             </div>
 
-            <div id="userInfo" class="user-card hidden">
-                <!-- User info injected here -->
+            <!-- User Info Cards Container (supports side-by-side display) -->
+            <div id="userInfoContainer" class="user-info-container hidden">
+                <div id="userInfo" class="user-card">
+                    <!-- User 1 info injected here -->
+                </div>
+                <div id="userInfo2" class="user-card hidden">
+                    <!-- User 2 info injected here -->
+                </div>
             </div>
 
             <div id="step-load-history" class="hidden" style="text-align: center; margin: 20px 0;">
@@ -76,12 +100,32 @@
 
             <div id="loading" class="progress-container hidden">
                 <div class="progress-status">Parsing scrobbles...</div>
-                <div class="progress-bar-bg">
-                    <div id="progressBar" class="progress-bar-fill"></div>
+                <!-- Single user progress bar -->
+                <div id="singleUserProgress">
+                    <div class="progress-bar-bg">
+                        <div id="progressBar" class="progress-bar-fill"></div>
+                    </div>
+                    <div class="progress-stats">
+                        <span id="progressText">0%</span>
+                        <span id="pagesText">Page 0 of 0</span>
+                    </div>
                 </div>
-                <div class="progress-stats">
-                    <span id="progressText">0%</span>
-                    <span id="pagesText">Page 0 of 0</span>
+                <!-- Dual user progress bars (for user-to-user mode) -->
+                <div id="dualUserProgress" class="hidden">
+                    <div class="dual-progress-row">
+                        <span class="progress-label" id="user1ProgressLabel">User 1</span>
+                        <div class="progress-bar-bg flex-grow">
+                            <div id="progressBar1" class="progress-bar-fill"></div>
+                        </div>
+                        <span id="pagesText1" class="progress-pages">0/0</span>
+                    </div>
+                    <div class="dual-progress-row">
+                        <span class="progress-label" id="user2ProgressLabel">User 2</span>
+                        <div class="progress-bar-bg flex-grow">
+                            <div id="progressBar2" class="progress-bar-fill"></div>
+                        </div>
+                        <span id="pagesText2" class="progress-pages">0/0</span>
+                    </div>
                 </div>
             </div>
             <div id="error" class="hidden"></div>
