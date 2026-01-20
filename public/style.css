@@ -278,6 +278,74 @@ button:hover {
     background-color: rgba(255, 255, 255, 0.05);
 }
 
+/* User Change Form (inline replacement for user card) */
+.user-change-form {
+    padding: 0.5rem 0;
+}
+
+.inline-user-form .input-group {
+    margin-bottom: 0;
+}
+
+.inline-user-form .input-row {
+    display: flex;
+    gap: 0.75rem;
+}
+
+.inline-user-form input {
+    flex-grow: 1;
+}
+
+.inline-user-form button {
+    flex-shrink: 0;
+}
+
+.change-user-loading {
+    padding: 1rem 0;
+    color: var(--text-secondary);
+    font-size: 0.9rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.change-user-loading .loading-text::after {
+    content: '';
+    animation: loadingDots 1.5s infinite;
+}
+
+@keyframes loadingDots {
+
+    0%,
+    20% {
+        content: '';
+    }
+
+    40% {
+        content: '.';
+    }
+
+    60% {
+        content: '..';
+    }
+
+    80%,
+    100% {
+        content: '...';
+    }
+}
+
+.change-user-error {
+    margin-top: 0.75rem;
+    padding: 0.75rem;
+    background-color: rgba(255, 0, 0, 0.1);
+    border: 1px solid rgba(255, 0, 0, 0.3);
+    border-radius: 6px;
+    color: #ff6b6b;
+    font-size: 0.9rem;
+}
+
+
 @keyframes fadeIn {
     from {
         opacity: 0;

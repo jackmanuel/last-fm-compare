@@ -143,7 +143,7 @@ userForm.addEventListener('submit', async (e) => {
             // Community mode: single user
             const data = await getUserInfo(username);
             loadingDiv.classList.add('hidden');
-            displayUserInfo(data, userInfoDiv);
+            displayUserInfo(data, userInfoDiv, null, 1);
             validatedUsername = data.username;
             userInfoContainer.classList.remove('hidden');
             userInfo2Div.classList.add('hidden');
@@ -155,8 +155,8 @@ userForm.addEventListener('submit', async (e) => {
                 getUserInfo(username2)
             ]);
             loadingDiv.classList.add('hidden');
-            displayUserInfo(data1, userInfoDiv);
-            displayUserInfo(data2, userInfo2Div);
+            displayUserInfo(data1, userInfoDiv, null, 1);
+            displayUserInfo(data2, userInfo2Div, null, 2);
             validatedUsername = data1.username;
             validatedUsername2 = data2.username;
             userInfoContainer.classList.remove('hidden');
@@ -188,16 +188,37 @@ loadHistoryBtn.addEventListener('click', async () => {
     if (!validatedUsername) return;
     if (comparisonMode === 'user' && !validatedUsername2) return;
 
-    // Reset State
-    cachedUserTracks = [];
-    cachedUser2Tracks = [];
     stepLoadHistoryDiv.classList.add('hidden');
 
     if (comparisonMode === 'user') {
-        // Parallel fetch for both users
-        await fetchAllScrobblesParallel();
+        // Check which users need fetching (preserve cached data)
+        const needsUser1 = cachedUserTracks.length === 0;
+        const needsUser2 = cachedUser2Tracks.length === 0;
+
+        if (needsUser1 && needsUser2) {
+            // Both need fetching - parallel fetch
+            await fetchAllScrobblesParallel();
+        } else if (needsUser1 || needsUser2) {
+            // Only one user needs fetching
+            await fetchSingleUserForParallelMode(needsUser1 ? 1 : 2);
+        } else {
+            // Both already cached, just show the UI
+            step2Div.classList.remove('hidden');
+            // Use cached top artists if available
+            currentTopArtistsUser = 1;
+            if (cachedUser1TopArtists) {
+                displayTopArtists(cachedUser1TopArtists, validatedUsername);
+                stepTopArtistsDiv.classList.remove('hidden');
+            } else {
+                await loadTopArtistsForUser(1);
+            }
+            if (!cachedUser2TopArtists && !user2TopArtistsLoading) {
+                loadUser2TopArtistsInBackground();
+            }
+        }
     } else {
-        // Single user fetch
+        // Community mode: single user fetch
+        cachedUserTracks = [];
         await fetchAllScrobbles(validatedUsername, (tracks) => {
             cachedUserTracks = tracks;
         }, 'User 1');
@@ -500,6 +521,93 @@ async function fetchAllScrobblesParallel() {
         loadingDiv.classList.add('hidden');
         stepLoadHistoryDiv.classList.remove('hidden');
         showError("Failed to load histories. Please try again.");
+    }
+}
+
+// Fetch only one user's scrobbles when the other user's data is already cached
+async function fetchSingleUserForParallelMode(userNumber) {
+    const loadingDiv = document.getElementById('loading');
+    const statusText = document.querySelector('.progress-status');
+    const singleUserProgress = document.getElementById('singleUserProgress');
+    const dualUserProgress = document.getElementById('dualUserProgress');
+    const progressBar = document.getElementById('progressBar');
+    const progressText = document.getElementById('progressText');
+    const pagesText = document.getElementById('pagesText');
+
+    const username = userNumber === 1 ? validatedUsername : validatedUsername2;
+    const otherUsername = userNumber === 1 ? validatedUsername2 : validatedUsername;
+
+    loadingDiv.classList.remove('hidden');
+    statusText.textContent = `Fetching ${username}'s scrobbles...`;
+
+    // Show single user progress bar
+    singleUserProgress.classList.remove('hidden');
+    dualUserProgress.classList.add('hidden');
+    const progressBarContainer = document.querySelector('.progress-bar-bg');
+    const progressStatsContainer = document.querySelector('.progress-stats');
+    if (progressBarContainer) progressBarContainer.style.display = 'block';
+    if (progressStatsContainer) progressStatsContainer.style.display = 'flex';
+
+    progressBar.style.width = '0%';
+    progressText.textContent = '0%';
+    pagesText.textContent = 'Initializing...';
+
+    try {
+        const tracks = await fetchUserScrobblesWithProgress(username, (current, total) => {
+            const pct = Math.round((current / total) * 100);
+            progressBar.style.width = `${pct}%`;
+            progressText.textContent = `${pct}%`;
+            pagesText.textContent = `Page ${current} of ${total}`;
+        });
+
+        // Store the fetched tracks
+        if (userNumber === 1) {
+            cachedUserTracks = tracks;
+        } else {
+            cachedUser2Tracks = tracks;
+        }
+
+        loadingDiv.classList.add('hidden');
+        step2Div.classList.remove('hidden');
+
+        console.log(`✅ ${username}: ${tracks.length.toLocaleString()} scrobbles (${otherUsername} was cached)`);
+
+        // Only reset top artists for the user that was changed
+        if (userNumber === 1) {
+            cachedUser1TopArtists = null;
+        } else {
+            cachedUser2TopArtists = null;
+            user2TopArtistsLoading = false;
+        }
+
+        // Load top artists - use cached data for unchanged user
+        currentTopArtistsUser = 1;
+
+        if (userNumber === 1) {
+            // User 1 was changed, need to reload their top artists
+            // User 2's top artists should still be cached
+            await loadTopArtistsForUser(1);
+            // User 2's top artists are already cached, no need to reload
+            if (!cachedUser2TopArtists && !user2TopArtistsLoading) {
+                loadUser2TopArtistsInBackground();
+            }
+        } else {
+            // User 2 was changed
+            // User 1's top artists should still be cached, use them
+            if (cachedUser1TopArtists) {
+                displayTopArtists(cachedUser1TopArtists, validatedUsername);
+                stepTopArtistsDiv.classList.remove('hidden');
+            } else {
+                await loadTopArtistsForUser(1);
+            }
+            // Reload User 2's top artists in background
+            loadUser2TopArtistsInBackground();
+        }
+
+    } catch (err) {
+        loadingDiv.classList.add('hidden');
+        stepLoadHistoryDiv.classList.remove('hidden');
+        showError(`Failed to load ${username}'s history. Please try again.`);
     }
 }
 
@@ -1231,13 +1339,12 @@ function updateProgress(currentPage, totalPages, bar, text, pagesText) {
     pagesText.textContent = `Page ${currentPage} of ${totalPages}`;
 }
 
-function displayUserInfo(user, container = userInfoDiv, label = null) {
+function displayUserInfo(user, container = userInfoDiv, label = null, userNumber = 1) {
     if (!user) return;
     const registeredDate = new Date(user.registered * 1000);
     const registeredYear = registeredDate.getFullYear();
 
-    // Both users get a change button
-    const isUser1 = container === userInfoDiv;
+    // Both users get a change button (only in user-to-user mode or for user 1 in community mode)
     const displayLabel = label ? `<div class="user-label">${label}</div>` : '';
     const changeBtn = `<button class="resetUserBtn secondary-btn" title="Change User">Change</button>`;
 
@@ -1259,29 +1366,139 @@ function displayUserInfo(user, container = userInfoDiv, label = null) {
     `;
     container.classList.remove('hidden');
 
-    // Add reset listener - resets both users and returns to step 1
+    // Add reset listener - in user mode, only resets the specific user
     container.querySelector('.resetUserBtn').addEventListener('click', () => {
+        if (comparisonMode === 'user') {
+            // User-to-user mode: only reset the specific user
+            resetSingleUser(userNumber, container);
+        } else {
+            // Community mode: reset everything (original behavior)
+            resetAllUsers();
+        }
+    });
+}
+
+// Reset only a single user while keeping the other user's data
+function resetSingleUser(userNumber, container) {
+    // Clear the specific user's data
+    if (userNumber === 1) {
         validatedUsername = null;
-        validatedUsername2 = null;
         cachedUserTracks = [];
-        cachedUser2Tracks = [];
-        userInfoContainer.classList.add('hidden');
-        userInfoDiv.innerHTML = '';
-        userInfo2Div.innerHTML = '';
-        userInfo2Div.classList.add('hidden');
-        stepLoadHistoryDiv.classList.add('hidden');
-        step2Div.classList.add('hidden');
-        stepTopArtistsDiv.classList.add('hidden');
-        topArtistsGrid.innerHTML = '';
-        userStepDiv.classList.remove('hidden');
-        results.classList.add('hidden');
-        artistInfoDiv.classList.add('hidden');
-        cachedArtistInfo.clear();
-        cachedArtistTopTracks.clear();
-        currentTopArtistsUser = 1;
         cachedUser1TopArtists = null;
+    } else {
+        validatedUsername2 = null;
+        cachedUser2Tracks = [];
         cachedUser2TopArtists = null;
         user2TopArtistsLoading = false;
+    }
+
+    // Hide downstream UI (need to re-fetch scrobbles after user change)
+    stepLoadHistoryDiv.classList.add('hidden');
+    step2Div.classList.add('hidden');
+    stepTopArtistsDiv.classList.add('hidden');
+    topArtistsGrid.innerHTML = '';
+    results.classList.add('hidden');
+    artistInfoDiv.classList.add('hidden');
+    globalComparisonData = null;
+    currentTopArtistsUser = 1;
+
+    // Show inline form for changing this user
+    showUserChangeForm(userNumber, container);
+}
+
+// Reset all users and return to step 1 (used in community mode)
+function resetAllUsers() {
+    validatedUsername = null;
+    validatedUsername2 = null;
+    cachedUserTracks = [];
+    cachedUser2Tracks = [];
+    userInfoContainer.classList.add('hidden');
+    userInfoDiv.innerHTML = '';
+    userInfo2Div.innerHTML = '';
+    userInfo2Div.classList.add('hidden');
+    stepLoadHistoryDiv.classList.add('hidden');
+    step2Div.classList.add('hidden');
+    stepTopArtistsDiv.classList.add('hidden');
+    topArtistsGrid.innerHTML = '';
+    userStepDiv.classList.remove('hidden');
+    results.classList.add('hidden');
+    artistInfoDiv.classList.add('hidden');
+    cachedArtistInfo.clear();
+    cachedArtistTopTracks.clear();
+    currentTopArtistsUser = 1;
+    cachedUser1TopArtists = null;
+    cachedUser2TopArtists = null;
+    user2TopArtistsLoading = false;
+    globalComparisonData = null;
+}
+
+// Show inline form for changing a single user
+function showUserChangeForm(userNumber, container) {
+    const labelText = `User ${userNumber}`;
+
+    container.innerHTML = `
+        <div class="user-change-form">
+            <form class="inline-user-form">
+                <div class="input-group">
+                    <label>${labelText}</label>
+                    <div class="input-row">
+                        <input type="text" class="change-username-input" placeholder="Enter username" required>
+                        <button type="submit" class="primary-btn">Check</button>
+                    </div>
+                </div>
+            </form>
+            <div class="change-user-loading hidden">
+                <span class="loading-text">Fetching user info...</span>
+            </div>
+            <div class="change-user-error hidden"></div>
+        </div>
+    `;
+
+    const form = container.querySelector('.inline-user-form');
+    const input = container.querySelector('.change-username-input');
+    const loadingEl = container.querySelector('.change-user-loading');
+    const errorEl = container.querySelector('.change-user-error');
+
+    // Focus the input
+    input.focus();
+
+    form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const username = input.value.trim();
+        if (!username) return;
+
+        // Show loading
+        form.classList.add('hidden');
+        loadingEl.classList.remove('hidden');
+        errorEl.classList.add('hidden');
+
+        try {
+            const userData = await getUserInfo(username);
+
+            // Update state
+            if (userNumber === 1) {
+                validatedUsername = userData.username;
+            } else {
+                validatedUsername2 = userData.username;
+            }
+
+            // Display the user info card
+            displayUserInfo(userData, container, null, userNumber);
+
+            // Show load history step if both users are validated
+            if (validatedUsername && validatedUsername2) {
+                stepLoadHistoryDiv.classList.remove('hidden');
+                loadHistoryBtn.textContent = 'Load Scrobble Histories';
+                document.querySelector('#step-load-history .hint-text').textContent =
+                    'This will fetch all scrobbles for both users. This may take a few minutes.';
+            }
+        } catch (err) {
+            // Show error
+            loadingEl.classList.add('hidden');
+            form.classList.remove('hidden');
+            errorEl.textContent = err.message;
+            errorEl.classList.remove('hidden');
+        }
     });
 }
 
