@@ -60,6 +60,12 @@ let globalComparisonData = null; // Store full comparison results
 let cachedArtistInfo = new Map(); // Cache artist info including images
 let cachedArtistTopTracks = new Map(); // Cache artist.getTopTracks results
 
+// Top artists user switching (for user-to-user mode)
+let currentTopArtistsUser = 1; // Which user's top 10 is displayed
+let cachedUser1TopArtists = null; // Loaded top artists for user 1
+let cachedUser2TopArtists = null; // Pre-loaded top artists for user 2
+let user2TopArtistsLoading = false; // Is user 2's top artists loading in background?
+
 // Mode Toggle Handlers
 function setComparisonMode(mode) {
     comparisonMode = mode;
@@ -88,10 +94,21 @@ function setComparisonMode(mode) {
     cachedUserTracks = [];
     cachedUser2Tracks = [];
     globalComparisonData = null;
+    currentTopArtistsUser = 1;
+    cachedUser1TopArtists = null;
+    cachedUser2TopArtists = null;
+    user2TopArtistsLoading = false;
 }
 
 modeCommunityBtn.addEventListener('click', () => setComparisonMode('community'));
 modeUserBtn.addEventListener('click', () => setComparisonMode('user'));
+
+// Swap top artists button (user-to-user mode)
+const swapTopArtistsBtn = document.getElementById('swapTopArtistsBtn');
+if (swapTopArtistsBtn) {
+    swapTopArtistsBtn.addEventListener('click', () => switchTopArtistsUser());
+}
+
 
 // Step 1: Check User(s)
 userForm.addEventListener('submit', async (e) => {
@@ -465,8 +482,17 @@ async function fetchAllScrobblesParallel() {
         console.log(`✅ User 1 (${validatedUsername}): ${cachedUserTracks.length.toLocaleString()} scrobbles`);
         console.log(`✅ User 2 (${validatedUsername2}): ${cachedUser2Tracks.length.toLocaleString()} scrobbles`);
 
-        // Load top artists for User 1 only
-        await loadTopArtistsFromCache();
+        // Reset top artists state for user mode
+        currentTopArtistsUser = 1;
+        cachedUser1TopArtists = null;
+        cachedUser2TopArtists = null;
+        user2TopArtistsLoading = false;
+
+        // Load User 1's top artists first (with their username in header)
+        await loadTopArtistsForUser(1);
+
+        // After User 1's screen is ready, start loading User 2's top artists in background
+        loadUser2TopArtistsInBackground();
 
     } catch (err) {
         singleUserProgress.classList.remove('hidden');
@@ -638,6 +664,200 @@ async function loadTopArtistsFromCache() {
     } catch (err) {
         console.warn('Failed to load top artists from cache:', err);
     }
+}
+
+// Load top artists for a specific user (used in user-to-user mode)
+async function loadTopArtistsForUser(userNum) {
+    const tracks = userNum === 1 ? cachedUserTracks : cachedUser2Tracks;
+    const username = userNum === 1 ? validatedUsername : validatedUsername2;
+
+    if (!tracks || tracks.length === 0) {
+        console.warn(`No tracks for user ${userNum}`);
+        return [];
+    }
+
+    const topArtists = getTopArtistsFromScrobbles(tracks, 10);
+    if (topArtists.length === 0) return [];
+
+    // Show skeleton placeholders with username in header
+    displayTopArtistSkeletons(topArtists.length, username);
+
+    const artistsWithInfo = [];
+    for (let i = 0; i < topArtists.length; i++) {
+        const artist = topArtists[i];
+        try {
+            const artistInfo = await fetchArtistInfo(artist.name);
+            if (artistInfo) {
+                cachedArtistInfo.set(artist.name.toLowerCase(), artistInfo);
+                let image = '/default_pfp.png';
+                if (artistInfo.image) {
+                    const imgObj = artistInfo.image.find(img => img.size === 'large')
+                        || artistInfo.image.find(img => img.size === 'medium')
+                        || artistInfo.image[0];
+                    if (imgObj?.['#text'] && imgObj['#text'].trim() !== '') {
+                        image = imgObj['#text'];
+                    }
+                }
+                artistsWithInfo.push({
+                    name: artistInfo.name,
+                    playcount: artist.playcount,
+                    url: artistInfo.url,
+                    image: image
+                });
+            } else {
+                artistsWithInfo.push({
+                    name: artist.name,
+                    playcount: artist.playcount,
+                    url: `https://www.last.fm/music/${encodeURIComponent(artist.name)}`,
+                    image: '/default_pfp.png'
+                });
+            }
+        } catch (e) {
+            console.warn(`Failed to fetch info for ${artist.name}:`, e);
+            artistsWithInfo.push({
+                name: artist.name,
+                playcount: artist.playcount,
+                url: `https://www.last.fm/music/${encodeURIComponent(artist.name)}`,
+                image: '/default_pfp.png'
+            });
+        }
+
+        if (i < topArtists.length - 1) {
+            await new Promise(resolve => setTimeout(resolve, RATE_LIMIT_DELAY_MS));
+        }
+    }
+
+    // Cache the results
+    if (userNum === 1) {
+        cachedUser1TopArtists = artistsWithInfo;
+    } else {
+        cachedUser2TopArtists = artistsWithInfo;
+    }
+
+    currentTopArtistsUser = userNum;
+    displayTopArtists(artistsWithInfo, username);
+    return artistsWithInfo;
+}
+
+// Load User 2's top artists in background (won't run in parallel with User 1's API calls)
+function loadUser2TopArtistsInBackground() {
+    if (!cachedUser2Tracks || cachedUser2Tracks.length === 0) return;
+    if (cachedUser2TopArtists) return; // Already cached
+    if (user2TopArtistsLoading) return; // Already loading
+
+    user2TopArtistsLoading = true;
+    console.log('🔄 Loading User 2 top artists in background...');
+
+    // Use an async IIFE so we don't block
+    (async () => {
+        try {
+            const topArtists = getTopArtistsFromScrobbles(cachedUser2Tracks, 10);
+            if (topArtists.length === 0) {
+                user2TopArtistsLoading = false;
+                return;
+            }
+
+            const artistsWithInfo = [];
+            for (let i = 0; i < topArtists.length; i++) {
+                const artist = topArtists[i];
+                try {
+                    const artistInfo = await fetchArtistInfo(artist.name);
+                    if (artistInfo) {
+                        cachedArtistInfo.set(artist.name.toLowerCase(), artistInfo);
+                        let image = '/default_pfp.png';
+                        if (artistInfo.image) {
+                            const imgObj = artistInfo.image.find(img => img.size === 'large')
+                                || artistInfo.image.find(img => img.size === 'medium')
+                                || artistInfo.image[0];
+                            if (imgObj?.['#text'] && imgObj['#text'].trim() !== '') {
+                                image = imgObj['#text'];
+                            }
+                        }
+                        artistsWithInfo.push({
+                            name: artistInfo.name,
+                            playcount: artist.playcount,
+                            url: artistInfo.url,
+                            image: image
+                        });
+                    } else {
+                        artistsWithInfo.push({
+                            name: artist.name,
+                            playcount: artist.playcount,
+                            url: `https://www.last.fm/music/${encodeURIComponent(artist.name)}`,
+                            image: '/default_pfp.png'
+                        });
+                    }
+                } catch (e) {
+                    artistsWithInfo.push({
+                        name: artist.name,
+                        playcount: artist.playcount,
+                        url: `https://www.last.fm/music/${encodeURIComponent(artist.name)}`,
+                        image: '/default_pfp.png'
+                    });
+                }
+
+                if (i < topArtists.length - 1) {
+                    await new Promise(resolve => setTimeout(resolve, RATE_LIMIT_DELAY_MS));
+                }
+            }
+
+            cachedUser2TopArtists = artistsWithInfo;
+            user2TopArtistsLoading = false;
+            console.log('✅ User 2 top artists cached');
+
+            // Update swap button text if it exists
+            updateSwapButtonState();
+
+        } catch (err) {
+            console.warn('Failed to load User 2 top artists:', err);
+            user2TopArtistsLoading = false;
+        }
+    })();
+}
+
+// Switch to viewing the other user's top 10
+async function switchTopArtistsUser() {
+    const targetUser = currentTopArtistsUser === 1 ? 2 : 1;
+    const targetUsername = targetUser === 1 ? validatedUsername : validatedUsername2;
+
+    if (targetUser === 2) {
+        if (cachedUser2TopArtists) {
+            // Use cached data - instant switch
+            currentTopArtistsUser = 2;
+            displayTopArtists(cachedUser2TopArtists, targetUsername);
+        } else if (user2TopArtistsLoading) {
+            // Show loading skeleton while waiting
+            displayTopArtistSkeletons(10, targetUsername);
+            currentTopArtistsUser = 2;
+            // Poll until loading completes
+            const checkInterval = setInterval(() => {
+                if (!user2TopArtistsLoading && cachedUser2TopArtists) {
+                    clearInterval(checkInterval);
+                    displayTopArtists(cachedUser2TopArtists, targetUsername);
+                }
+            }, 200);
+        } else {
+            // Not cached and not loading - load now
+            await loadTopArtistsForUser(2);
+        }
+    } else {
+        // Switching back to User 1
+        if (cachedUser1TopArtists) {
+            currentTopArtistsUser = 1;
+            displayTopArtists(cachedUser1TopArtists, targetUsername);
+        } else {
+            await loadTopArtistsForUser(1);
+        }
+    }
+}
+
+// Update the swap button text
+function updateSwapButtonState() {
+    const swapBtn = document.getElementById('swapTopArtistsBtn');
+    if (!swapBtn) return;
+
+    const otherUser = currentTopArtistsUser === 1 ? validatedUsername2 : validatedUsername;
+    swapBtn.textContent = `See ${otherUser}'s top 10`;
 }
 
 // Step 3: Compare
@@ -1038,15 +1258,32 @@ function displayUserInfo(user, container = userInfoDiv, label = null) {
         artistInfoDiv.classList.add('hidden');
         cachedArtistInfo.clear();
         cachedArtistTopTracks.clear();
+        currentTopArtistsUser = 1;
+        cachedUser1TopArtists = null;
+        cachedUser2TopArtists = null;
+        user2TopArtistsLoading = false;
     });
 }
 
 // Display skeleton placeholders for top artists while loading
-function displayTopArtistSkeletons(count = 10) {
-    // Update header text to indicate loading
+function displayTopArtistSkeletons(count = 10, username = null) {
+    // Update header with username
     const header = document.querySelector('.top-artists-header');
     if (header) {
-        header.textContent = 'Loading artist information...';
+        const displayName = username || validatedUsername || 'Your';
+        header.textContent = `Loading ${displayName}'s top 10...`;
+    }
+
+    // Manage swap button visibility
+    const swapBtn = document.getElementById('swapTopArtistsBtn');
+    if (swapBtn) {
+        if (comparisonMode === 'user' && validatedUsername2) {
+            const otherUser = currentTopArtistsUser === 1 ? validatedUsername2 : validatedUsername;
+            swapBtn.textContent = `See ${otherUser}'s top 10`;
+            swapBtn.classList.remove('hidden');
+        } else {
+            swapBtn.classList.add('hidden');
+        }
     }
 
     topArtistsGrid.innerHTML = Array(count).fill(0).map(() => `
@@ -1061,11 +1298,24 @@ function displayTopArtistSkeletons(count = 10) {
     stepTopArtistsDiv.classList.remove('hidden');
 }
 
-function displayTopArtists(artists) {
-    // Restore header text
+function displayTopArtists(artists, username = null) {
+    // Update header with username
     const header = document.querySelector('.top-artists-header');
     if (header) {
-        header.textContent = 'Your Top 10 Artists — Pick one to compare';
+        const displayName = username || validatedUsername || 'Your';
+        header.textContent = `${displayName}'s top 10 artists — Pick one to compare`;
+    }
+
+    // Manage swap button visibility
+    const swapBtn = document.getElementById('swapTopArtistsBtn');
+    if (swapBtn) {
+        if (comparisonMode === 'user' && validatedUsername2) {
+            const otherUser = currentTopArtistsUser === 1 ? validatedUsername2 : validatedUsername;
+            swapBtn.textContent = `See ${otherUser}'s top 10`;
+            swapBtn.classList.remove('hidden');
+        } else {
+            swapBtn.classList.add('hidden');
+        }
     }
 
     if (!artists || artists.length === 0) {
@@ -1178,11 +1428,20 @@ function renderColumnView(tracks) {
 
     // Dynamic labels based on comparison mode
     const isUserMode = globalComparisonData?.mode === 'user';
+    const user1Label = validatedUsername || 'User 1';
     const otherLabel = isUserMode ? (globalComparisonData?.user2Name || 'User 2') : 'the community';
 
-    createColumn("Top Positive (+)", "column-positive", positiveTracks, `You like more than ${otherLabel}`);
+    // In user mode, use usernames; in community mode, use "You"
+    const positiveSubtext = isUserMode
+        ? `${user1Label} likes more than ${otherLabel}`
+        : `You like more than ${otherLabel}`;
+    const negativeSubtext = isUserMode
+        ? `${otherLabel} likes more than ${user1Label}`
+        : `The community likes more than you`;
+
+    createColumn("Top Positive (+)", "column-positive", positiveTracks, positiveSubtext);
     createColumn("Neutral (~0)", "column-neutral", neutralTracks, "&nbsp;");
-    createColumn("Top Negative (-)", "column-negative", negativeTracks, `${isUserMode ? globalComparisonData?.user2Name || 'User 2' : 'The community'} likes more than you`);
+    createColumn("Top Negative (-)", "column-negative", negativeTracks, negativeSubtext);
 }
 
 function createColumn(title, className, tracks, subtext = null) {
@@ -1222,12 +1481,13 @@ function createTrackCard(track, compact = false) {
 
     // Dynamic labels based on comparison mode
     const isUserMode = globalComparisonData?.mode === 'user';
+    const user1Label = isUserMode ? (validatedUsername || 'User 1') : 'You';
     const otherLabel = isUserMode ? (globalComparisonData?.user2Name || 'User 2') : 'Community';
     const compareRankValue = track.compareRank || track.communityRank || `>${TOP_TRACKS_LIMIT}`; // Support both property names
 
     const metaContent = compact
         ? `#<strong>${track.userRank}</strong> vs #<strong>${compareRankValue}</strong> | ${track.playcount} scrobbles`
-        : `Rankings: #<strong>${track.userRank}</strong> (You) vs #<strong>${compareRankValue}</strong> (${otherLabel})<br>Scrobbles: ${track.playcount}`;
+        : `Rankings: #<strong>${track.userRank}</strong> (${user1Label}) vs #<strong>${compareRankValue}</strong> (${otherLabel})<br>Scrobbles: ${track.playcount}`;
 
     card.innerHTML = `
         <img src="${imgUrl}" alt="${track.name}" class="track-image" onerror="this.onerror=null;this.src='/default_pfp.png';">
