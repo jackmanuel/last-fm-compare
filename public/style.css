@@ -461,6 +461,7 @@ button:hover {
     font-weight: 600;
     color: var(--text-secondary);
     min-width: 80px;
+    margin-right: 1.5rem;
 }
 
 .progress-bar-bg.flex-grow {
