@@ -908,12 +908,32 @@ compareForm.addEventListener('submit', async (e) => {
         });
 
         if (userArtistTracks.length === 0) {
-            loadingDiv.classList.add('hidden');
-            const errorUsername = validatedUsername || 'User';
-            if (comparisonMode === 'user') {
-                showError(`${errorUsername} hasn't listened to this artist. Try a different artist that both users have listened to.`);
-            } else {
-                showError(`${errorUsername} hasn't listened to this artist or artist not found.`);
+            // Check if artist exists on Last.fm before showing error
+            try {
+                const artistInfo = await fetchArtistInfo(artist);
+                loadingDiv.classList.add('hidden');
+                if (!artistInfo) {
+                    showError('Artist not found.');
+                } else {
+                    const errorUsername = validatedUsername || 'User';
+                    if (comparisonMode === 'user') {
+                        // Check if User 2 has also not listened
+                        const user2ArtistTracks = cachedUser2Tracks.filter(track => {
+                            const trackArtist = track.artist['#text'] || track.artist.name;
+                            return trackArtist && trackArtist.toLowerCase() === artist.toLowerCase();
+                        });
+                        if (user2ArtistTracks.length === 0) {
+                            showError('Neither user has listened to this artist. Try a different artist that both users have listened to.');
+                        } else {
+                            showError(`${errorUsername} hasn't listened to this artist. Try a different artist that both users have listened to.`);
+                        }
+                    } else {
+                        showError(`${errorUsername} hasn't listened to this artist.`);
+                    }
+                }
+            } catch (e) {
+                loadingDiv.classList.add('hidden');
+                showError('Artist not found.');
             }
             return;
         }

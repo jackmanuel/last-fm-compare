@@ -732,6 +732,42 @@ footer strong {
     color: var(--accent);
 }
 
+.powered-by {
+    margin-top: 1.5rem;
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+}
+
+.powered-by a {
+    color: var(--text-secondary);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+}
+
+.powered-by a:hover {
+    color: var(--accent);
+}
+
+.disclaimer {
+    margin-top: 0.75rem;
+    font-size: 0.75rem;
+    color: #666;
+    max-width: 500px;
+    margin-left: auto;
+    margin-right: auto;
+    line-height: 1.5;
+}
+
+.disclaimer a {
+    color: #666;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+}
+
+.disclaimer a:hover {
+    color: var(--text-secondary);
+}
+
 /* Modal Styles */
 .modal {
     position: fixed;
