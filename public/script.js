@@ -1,4 +1,4 @@
-import { getUserInfo, getRecentTracks, getArtistTopTracks, getArtistInfo } from './api.js';
+import { getUserInfo, getRecentTracks, getArtistTopTracks, getArtistInfo, TOP_TRACKS_LIMIT } from './api.js';
 
 // Rate limiting constants (Last.fm API limits: 5 requests/second)
 const RATE_LIMIT_DELAY_MS = 200;        // 5 req/sec for artist.getInfo calls
@@ -827,7 +827,11 @@ compareForm.addEventListener('submit', async (e) => {
         aggregatedTracks.sort((a, b) => b.playcount - a.playcount);
 
         // Determine max rank for "not found" tracks
-        const maxRank = comparisonMode === 'user' ? comparisonRankMap.size + 1 : 101;
+        let maxRank = TOP_TRACKS_LIMIT + 1;
+        if (comparisonMode === 'user') {
+            // In user mode, the "not heard" rank must be worse than the lowest rank of EITHER user.
+            maxRank = Math.max(aggregatedTracks.length, comparisonRankMap.size) + 1;
+        }
 
         // Calculate Differentials
         const comparison = aggregatedTracks.map((userTrack, userIndex) => {
@@ -1219,7 +1223,7 @@ function createTrackCard(track, compact = false) {
     // Dynamic labels based on comparison mode
     const isUserMode = globalComparisonData?.mode === 'user';
     const otherLabel = isUserMode ? (globalComparisonData?.user2Name || 'User 2') : 'Community';
-    const compareRankValue = track.compareRank || track.communityRank || '>100'; // Support both property names
+    const compareRankValue = track.compareRank || track.communityRank || `>${TOP_TRACKS_LIMIT}`; // Support both property names
 
     const metaContent = compact
         ? `#<strong>${track.userRank}</strong> vs #<strong>${compareRankValue}</strong> | ${track.playcount} scrobbles`

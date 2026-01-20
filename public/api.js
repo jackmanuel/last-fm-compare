@@ -44,10 +44,12 @@ export async function getRecentTracks(username, limit = 200, page = 1) {
     });
 }
 
-export async function getArtistTopTracks(artist) {
+export const TOP_TRACKS_LIMIT = 200;
+
+export async function getArtistTopTracks(artist, limit = TOP_TRACKS_LIMIT) {
     return lastFmRequest('artist.getTopTracks', {
         artist: artist,
-        limit: 100
+        limit: limit
     });
 }
 
