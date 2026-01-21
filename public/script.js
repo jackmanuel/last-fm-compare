@@ -245,7 +245,7 @@ loadHistoryBtn.addEventListener('click', async () => {
             await fetchAllScrobbles(validatedUsername, (tracks) => {
                 cachedUserTracks = tracks;
                 cachedUser1Username = userLower;
-            }, 'User 1');
+            });
         }
     }
 });
