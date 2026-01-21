@@ -188,6 +188,9 @@ loadHistoryBtn.addEventListener('click', async () => {
     if (!validatedUsername) return;
     if (comparisonMode === 'user' && !validatedUsername2) return;
 
+    // Clear any previous error immediately
+    errorDiv.classList.add('hidden');
+
     stepLoadHistoryDiv.classList.add('hidden');
 
     if (comparisonMode === 'user') {
