@@ -56,6 +56,9 @@ let validatedUsername = null;
 let validatedUsername2 = null;
 let cachedUserTracks = [];
 let cachedUser2Tracks = [];
+// Track which usernames the cached data belongs to (for cross-mode caching)
+let cachedUser1Username = null;
+let cachedUser2Username = null;
 let globalComparisonData = null; // Store full comparison results
 let cachedArtistInfo = new Map(); // Cache artist info including images
 let cachedArtistTopTracks = new Map(); // Cache artist.getTopTracks results
@@ -87,17 +90,26 @@ function setComparisonMode(mode) {
         document.getElementById('username2').removeAttribute('required');
     }
 
-    // Reset state when mode changes
+    // Reset UI state (but preserve cached user data for when they switch back)
     resetUI();
+
+    // Show step1-user again so the user can enter usernames
+    userStepDiv.classList.remove('hidden');
+
+    // Clear validated usernames since we're showing the form again
+    // But preserve cached tracks in case one of the users is used again
     validatedUsername = null;
     validatedUsername2 = null;
-    cachedUserTracks = [];
-    cachedUser2Tracks = [];
+
+    // Reset comparison results but NOT cached scrobble data
     globalComparisonData = null;
     currentTopArtistsUser = 1;
     cachedUser1TopArtists = null;
     cachedUser2TopArtists = null;
     user2TopArtistsLoading = false;
+
+    // Note: cachedUserTracks and cachedUser2Tracks are intentionally NOT cleared
+    // so that if the same username is entered, their scrobbles don't need to be re-fetched
 }
 
 modeCommunityBtn.addEventListener('click', () => setComparisonMode('community'));
@@ -194,9 +206,11 @@ loadHistoryBtn.addEventListener('click', async () => {
     stepLoadHistoryDiv.classList.add('hidden');
 
     if (comparisonMode === 'user') {
-        // Check which users need fetching (preserve cached data)
-        const needsUser1 = cachedUserTracks.length === 0;
-        const needsUser2 = cachedUser2Tracks.length === 0;
+        // Check which users need fetching based on username match (not just cache existence)
+        const user1Lower = validatedUsername.toLowerCase();
+        const user2Lower = validatedUsername2.toLowerCase();
+        const needsUser1 = cachedUserTracks.length === 0 || cachedUser1Username !== user1Lower;
+        const needsUser2 = cachedUser2Tracks.length === 0 || cachedUser2Username !== user2Lower;
 
         if (needsUser1 && needsUser2) {
             // Both need fetching - parallel fetch
@@ -220,11 +234,19 @@ loadHistoryBtn.addEventListener('click', async () => {
             }
         }
     } else {
-        // Community mode: single user fetch
-        cachedUserTracks = [];
-        await fetchAllScrobbles(validatedUsername, (tracks) => {
-            cachedUserTracks = tracks;
-        }, 'User 1');
+        // Community mode: check if we have cached data for this user
+        const userLower = validatedUsername.toLowerCase();
+        if (cachedUserTracks.length > 0 && cachedUser1Username === userLower) {
+            // Use cached data
+            step2Div.classList.remove('hidden');
+            await loadTopArtistsFromCache();
+        } else {
+            // Fetch fresh data
+            await fetchAllScrobbles(validatedUsername, (tracks) => {
+                cachedUserTracks = tracks;
+                cachedUser1Username = userLower;
+            }, 'User 1');
+        }
     }
 });
 
@@ -495,6 +517,9 @@ async function fetchAllScrobblesParallel() {
 
         cachedUserTracks = results[0];
         cachedUser2Tracks = results[1];
+        // Track which usernames this data belongs to
+        cachedUser1Username = validatedUsername.toLowerCase();
+        cachedUser2Username = validatedUsername2.toLowerCase();
 
         // Reset progress visibility
         singleUserProgress.classList.remove('hidden');
@@ -563,11 +588,13 @@ async function fetchSingleUserForParallelMode(userNumber) {
             pagesText.textContent = `Page ${current} of ${total}`;
         });
 
-        // Store the fetched tracks
+        // Store the fetched tracks and track which username this data belongs to
         if (userNumber === 1) {
             cachedUserTracks = tracks;
+            cachedUser1Username = validatedUsername.toLowerCase();
         } else {
             cachedUser2Tracks = tracks;
+            cachedUser2Username = validatedUsername2.toLowerCase();
         }
 
         loadingDiv.classList.add('hidden');
