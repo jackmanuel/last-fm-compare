@@ -787,8 +787,15 @@ async function loadTopArtistsForUser(userNum) {
     const topArtists = getTopArtistsFromScrobbles(tracks, 10);
     if (topArtists.length === 0) return [];
 
-    // Show skeleton placeholders with username in header
-    displayTopArtistSkeletons(topArtists.length, username);
+    // Track which user was being viewed when we started loading
+    // so we can avoid switching the view if user manually changed it
+    const viewedUserAtStart = currentTopArtistsUser;
+    const isInitialLoad = viewedUserAtStart === userNum || (userNum === 1 && !cachedUser1TopArtists);
+
+    // Show skeleton placeholders with username in header (only if this user is currently being viewed)
+    if (isInitialLoad || currentTopArtistsUser === userNum) {
+        displayTopArtistSkeletons(topArtists.length, username);
+    }
 
     const artistsWithInfo = [];
     for (let i = 0; i < topArtists.length; i++) {
@@ -842,8 +849,14 @@ async function loadTopArtistsForUser(userNum) {
         cachedUser2TopArtists = artistsWithInfo;
     }
 
-    currentTopArtistsUser = userNum;
-    displayTopArtists(artistsWithInfo, username);
+    // Only update the display if the user hasn't switched to viewing another user's top 10
+    // This respects the user's manual selection via the swap button
+    if (currentTopArtistsUser === userNum || (isInitialLoad && currentTopArtistsUser === viewedUserAtStart)) {
+        currentTopArtistsUser = userNum;
+        displayTopArtists(artistsWithInfo, username);
+    } else {
+        console.log(`⏭️ User ${userNum} top artists loaded but not displayed (user switched to viewing user ${currentTopArtistsUser})`);
+    }
     return artistsWithInfo;
 }
 
