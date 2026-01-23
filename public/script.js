@@ -1435,6 +1435,8 @@ function resetSingleUser(userNumber, container) {
         user2TopArtistsLoading = false;
     }
 
+    errorDiv.classList.add('hidden');
+
     // Hide downstream UI (need to re-fetch scrobbles after user change)
     stepLoadHistoryDiv.classList.add('hidden');
     step2Div.classList.add('hidden');
@@ -1455,6 +1457,7 @@ function resetAllUsers() {
     validatedUsername2 = null;
     cachedUserTracks = [];
     cachedUser2Tracks = [];
+    errorDiv.classList.add('hidden');
     userInfoContainer.classList.add('hidden');
     userInfoDiv.innerHTML = '';
     userInfo2Div.innerHTML = '';
