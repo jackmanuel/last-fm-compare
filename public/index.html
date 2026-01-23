@@ -207,29 +207,37 @@
                 <button id="closeModal" class="close-btn">&times;</button>
             </div>
             <div class="modal-body">
+                <section>
+                    <h3>Comparison Modes</h3>
+                    <p>This tool supports two ways to compare your listening habits:</p>
+                    <ul>
+                        <li><strong>Community Comparison:</strong> Compare your personal play counts against the
+                            community's unique listener rankings. Great for finding your hidden gems.</li>
+                        <li><strong>User-to-User Comparison:</strong> Compare your scrobble history directly with
+                            another Last.fm user. See which songs you love more than your friend—and vice versa.</li>
+                    </ul>
+                </section>
                 <section class="note-box">
-                    <strong>⚠️ Important:</strong> Community rankings are based on <em>unique listener count of all
-                        time</em>, while your rankings are based on <em>your play count</em>. These are different
-                    metrics, and this may produce unexpected results. This is a limitation of the last.fm API, which
-                    does not support date filtering or sorting by play count for an artist's top tracks.
+                    <strong>⚠️ Important:</strong> In Community mode, community rankings are based on <em>unique
+                        listener count</em>, while your rankings are based on <em>play count</em>. These are different
+                    metrics, which may produce unexpected results. This is a limitation of the Last.fm API.
                 </section>
                 <section>
                     <h3>How it works</h3>
-                    <p>We rank the top 100 tracks by an artist (by community unique listeners) and compare against your
-                        personal ranking (by your play counts). The <strong>differential</strong> is the difference
-                        between these ranks.</p>
+                    <p>We rank the top 100 tracks by an artist and compare rankings between you and the community (or
+                        another user). The <strong>differential</strong> is the difference between these ranks.</p>
                     <ul>
-                        <li><strong>Positive Differential:</strong> Your "unusual favourites" - songs you play more than
+                        <li><strong>Positive Differential:</strong> Your "unusual favourites" – songs you play more than
                             most.</li>
                         <li><strong>Negative Differential:</strong> Songs more popular with others than with you.</li>
-                        <li><strong>Near Zero:</strong> Your taste aligns with the community.</li>
+                        <li><strong>Near Zero:</strong> Your taste aligns closely.</li>
                     </ul>
                 </section>
                 <section>
                     <h3>Limitations</h3>
                     <ul>
-                        <li><strong>Fetching Time:</strong> Loading your scrobble history may take a few minutes due to
-                            API rate limits.</li>
+                        <li><strong>Fetching Time:</strong> Loading scrobble history may take a few minutes due to API
+                            rate limits.</li>
                         <li><strong>Recency Bias:</strong> Newer releases may appear in "unusual favourites" simply
                             because many older accounts haven't scrobbled them.</li>
                     </ul>

@@ -1,6 +1,11 @@
 # Last.fm Comparator
 
-Compare your Last.fm scrobble history with community data to discover your "unusual favourites" for any artist.
+Discover your "unusual favourites" for any artist by comparing scrobble histories.
+
+## Features
+
+- **Community Comparison** – Compare your personal play counts against the community's unique listener rankings to find tracks you love more (or less) than average.
+- **User-to-User Comparison** – Compare your scrobble history directly with another Last.fm user to see where your tastes differ.
 
 **Live site:** [scrobblegap.com](https://scrobblegap.com/)
 
