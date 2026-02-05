@@ -1,0 +1,15 @@
+# robots.txt for Last.fm Compare
+# This site displays user data from the Last.fm API
+# There is no valuable content to scrape - all music data comes from Last.fm
+
+User-agent: *
+Allow: /
+
+# Disallow API endpoints (nothing useful for crawlers)
+Disallow: /api/
+
+# Allow search engines to index the main page
+# but there's no dynamic content worth deep-crawling
+
+# Crawl-delay to be polite (optional, not all bots respect this)
+Crawl-delay: 10
