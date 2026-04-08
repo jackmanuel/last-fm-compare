@@ -14,8 +14,9 @@
 
 const fs = require('fs');
 const path = require('path');
+require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 
-const LASTFM_API_KEY = '6e84cb28f774f530b391a9fafd327363';
+const LASTFM_API_KEY = process.env.LASTFM_API_KEY || '6e84cb28f774f530b391a9fafd327363';
 const BASE_URL = 'https://ws.audioscrobbler.com/2.0/';
 const SCROBBLE_PAGE_LIMIT = 1000;
 const RATE_LIMIT_DELAY_MS = 500; // 2 req/sec to be safe

@@ -1,5 +1,6 @@
 // Last.fm API Client - Direct browser calls
-const LASTFM_API_KEY = '6e84cb28f774f530b391a9fafd327363';
+// API key is injected by the server via /config.js
+const LASTFM_API_KEY = window.LASTFM_API_KEY;
 const BASE_URL = 'https://ws.audioscrobbler.com/2.0/';
 
 async function lastFmRequest(method, params) {
