@@ -16,12 +16,7 @@ Discover your "unusual favourites" for any artist by comparing scrobble historie
    npm install
    ```
 
-2. **Create a `.env` file** with your Last.fm API key:
-   ```env
-   LASTFM_API_KEY=your_api_key_here
-   ```
-
-3. **Start the server**
+2. **Start the server**
    ```bash
    npm start
    ```
@@ -30,7 +25,9 @@ Discover your "unusual favourites" for any artist by comparing scrobble historie
    npm run dev
    ```
 
-4. **Open** `http://localhost:3000`
+3. **Open** `http://localhost:3000`
+
+A bundled API key is included for convenience. Optionally, you can supply your own by copying `.env.example` to `.env` and filling in a key from [last.fm/api](https://www.last.fm/api/account/create).
 
 ## Caching Scrobbles (Optional)
 
