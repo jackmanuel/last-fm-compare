@@ -1,0 +1,1 @@
+window.LASTFM_API_KEY = '6e84cb28f774f530b391a9fafd327363';
