@@ -9,6 +9,12 @@ Discover your "unusual favourites" for any artist by comparing scrobble historie
 
 **Live site:** [scrobblegap.com](https://scrobblegap.com/)
 
+### Community Comparison
+![Community comparison](screenshots/user_to_community_comp.png)
+
+### User-to-User Comparison
+![User-to-user comparison](screenshots/user_to_user_comp.png)
+
 ## Running Locally
 
 1. **Install dependencies**
