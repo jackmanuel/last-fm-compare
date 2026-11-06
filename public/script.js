@@ -23,6 +23,11 @@ const step2Div = document.getElementById('step2-compare');
 const userStepDiv = document.getElementById('step1-user');
 const stepTopArtistsDiv = document.getElementById('step-top-artists');
 const topArtistsGrid = document.getElementById('topArtistsGrid');
+const stepJointArtists = document.getElementById('step-joint-artists');
+const jointArtistsGrid = document.getElementById('jointArtistsGrid');
+const noJointArtists = document.getElementById('noJointArtists');
+const personalArtistsHeading = stepTopArtistsDiv.querySelector('.top-artists-header');
+const listeningShareFormat = new Intl.NumberFormat(undefined, { style: 'percent', maximumFractionDigits: 2 });
 
 // Mode toggle elements
 const modeCommunityBtn = document.getElementById('modeCommunityBtn');
@@ -221,6 +226,7 @@ loadHistoryBtn.addEventListener('click', async () => {
         } else {
             // Both already cached, just show the UI
             step2Div.classList.remove('hidden');
+            displayJointArtists();
             // Use cached top artists if available
             currentTopArtistsUser = 1;
             if (cachedUser1TopArtists) {
@@ -466,6 +472,10 @@ async function fetchAllScrobbles(username = validatedUsername, setTracks = (trac
 }
 
 // Parallel fetch for user-to-user mode
+function isCurrentUserComparison(username1, username2) {
+    return comparisonMode === 'user' && validatedUsername === username1 && validatedUsername2 === username2;
+}
+
 async function fetchAllScrobblesParallel() {
     // Clear any previous error
     errorDiv.classList.add('hidden');
@@ -491,8 +501,10 @@ async function fetchAllScrobblesParallel() {
     dualUserProgress.classList.remove('hidden');
 
     // Set usernames as labels
-    user1ProgressLabel.textContent = validatedUsername;
-    user2ProgressLabel.textContent = validatedUsername2;
+    const username1 = validatedUsername;
+    const username2 = validatedUsername2;
+    user1ProgressLabel.textContent = username1;
+    user2ProgressLabel.textContent = username2;
 
     // Reset progress bars
     progressBar1.style.width = '0%';
@@ -503,17 +515,21 @@ async function fetchAllScrobblesParallel() {
     try {
         // Fetch both users in parallel with progress callbacks
         const results = await Promise.all([
-            fetchUserScrobblesWithProgress(validatedUsername, (current, total) => {
+            fetchUserScrobblesWithProgress(username1, (current, total) => {
+                if (!isCurrentUserComparison(username1, username2)) return;
                 const pct = Math.round((current / total) * 100);
                 progressBar1.style.width = `${pct}%`;
                 pagesText1.textContent = `${current}/${total}`;
             }),
-            fetchUserScrobblesWithProgress(validatedUsername2, (current, total) => {
+            fetchUserScrobblesWithProgress(username2, (current, total) => {
+                if (!isCurrentUserComparison(username1, username2)) return;
                 const pct = Math.round((current / total) * 100);
                 progressBar2.style.width = `${pct}%`;
                 pagesText2.textContent = `${current}/${total}`;
             })
         ]);
+
+        if (!isCurrentUserComparison(username1, username2)) return;
 
         cachedUserTracks = results[0];
         cachedUser2Tracks = results[1];
@@ -527,6 +543,7 @@ async function fetchAllScrobblesParallel() {
 
         loadingDiv.classList.add('hidden');
         step2Div.classList.remove('hidden');
+        displayJointArtists();
 
         console.log(`✅ User 1 (${validatedUsername}): ${cachedUserTracks.length.toLocaleString()} scrobbles`);
         console.log(`✅ User 2 (${validatedUsername2}): ${cachedUser2Tracks.length.toLocaleString()} scrobbles`);
@@ -544,6 +561,7 @@ async function fetchAllScrobblesParallel() {
         loadUser2TopArtistsInBackground();
 
     } catch (err) {
+        if (!isCurrentUserComparison(username1, username2)) return;
         singleUserProgress.classList.remove('hidden');
         dualUserProgress.classList.add('hidden');
         loadingDiv.classList.add('hidden');
@@ -562,8 +580,10 @@ async function fetchSingleUserForParallelMode(userNumber) {
     const progressText = document.getElementById('progressText');
     const pagesText = document.getElementById('pagesText');
 
-    const username = userNumber === 1 ? validatedUsername : validatedUsername2;
-    const otherUsername = userNumber === 1 ? validatedUsername2 : validatedUsername;
+    const username1 = validatedUsername;
+    const username2 = validatedUsername2;
+    const username = userNumber === 1 ? username1 : username2;
+    const otherUsername = userNumber === 1 ? username2 : username1;
 
     loadingDiv.classList.remove('hidden');
     statusText.textContent = `Fetching ${username}'s scrobbles...`;
@@ -582,11 +602,14 @@ async function fetchSingleUserForParallelMode(userNumber) {
 
     try {
         const tracks = await fetchUserScrobblesWithProgress(username, (current, total) => {
+            if (!isCurrentUserComparison(username1, username2)) return;
             const pct = Math.round((current / total) * 100);
             progressBar.style.width = `${pct}%`;
             progressText.textContent = `${pct}%`;
             pagesText.textContent = `Page ${current} of ${total}`;
         });
+
+        if (!isCurrentUserComparison(username1, username2)) return;
 
         // Store the fetched tracks and track which username this data belongs to
         if (userNumber === 1) {
@@ -599,6 +622,7 @@ async function fetchSingleUserForParallelMode(userNumber) {
 
         loadingDiv.classList.add('hidden');
         step2Div.classList.remove('hidden');
+        displayJointArtists();
 
         console.log(`✅ ${username}: ${tracks.length.toLocaleString()} scrobbles (${otherUsername} was cached)`);
 
@@ -635,6 +659,7 @@ async function fetchSingleUserForParallelMode(userNumber) {
         }
 
     } catch (err) {
+        if (!isCurrentUserComparison(username1, username2)) return;
         loadingDiv.classList.add('hidden');
         stepLoadHistoryDiv.classList.remove('hidden');
         showError(`Failed to load ${username}'s history. Please try again.`);
@@ -723,25 +748,55 @@ async function fetchUserScrobblesWithProgress(username, onProgress) {
     return collectedTracks;
 }
 
-// Compute top N artists from scrobble data
-function getTopArtistsFromScrobbles(tracks, limit = 10) {
+function countArtistScrobbles(tracks, ignoreCase = false) {
     const artistCounts = new Map();
 
-    tracks.forEach(track => {
+    for (const track of tracks) {
         const artistName = track.artist?.['#text'] || track.artist?.name;
-        if (!artistName) return;
+        if (!artistName) continue;
 
-        const current = artistCounts.get(artistName) || 0;
-        artistCounts.set(artistName, current + 1);
-    });
+        const key = ignoreCase ? artistName.toLowerCase() : artistName;
+        const artist = artistCounts.get(key);
+        if (artist) {
+            artist.playcount++;
+        } else {
+            artistCounts.set(key, { name: artistName, playcount: 1 });
+        }
+    }
 
-    // Convert to array and sort by count descending
-    const sorted = Array.from(artistCounts.entries())
-        .map(([name, playcount]) => ({ name, playcount }))
+    return artistCounts;
+}
+
+function getTopArtistsFromScrobbles(tracks, limit = 10) {
+    return Array.from(countArtistScrobbles(tracks).values())
         .sort((a, b) => b.playcount - a.playcount)
         .slice(0, limit);
+}
 
-    return sorted;
+function getJointTopArtists(user1Tracks, user2Tracks) {
+    const user1Artists = countArtistScrobbles(user1Tracks, true);
+    const user2Artists = countArtistScrobbles(user2Tracks, true);
+    const sharedArtists = [];
+
+    for (const [key, user1Artist] of user1Artists) {
+        const user2Artist = user2Artists.get(key);
+        if (!user2Artist) continue;
+
+        const user1Share = user1Artist.playcount / user1Tracks.length;
+        const user2Share = user2Artist.playcount / user2Tracks.length;
+        sharedArtists.push({
+            name: user1Artist.name,
+            score: Math.sqrt(user1Share * user2Share),
+            user1Share,
+            user2Share,
+            user1Playcount: user1Artist.playcount,
+            user2Playcount: user2Artist.playcount
+        });
+    }
+
+    return sharedArtists
+        .sort((a, b) => b.score - a.score || a.name.localeCompare(b.name))
+        .slice(0, 10);
 }
 
 // Helper function to load top artists when using cached scrobbles
@@ -1054,7 +1109,7 @@ compareForm.addEventListener('submit', async (e) => {
 
         // 1. Filter user 1 tracks for the artist
         const userArtistTracks = cachedUserTracks.filter(track => {
-            const trackArtist = track.artist['#text'] || track.artist.name;
+            const trackArtist = track.artist?.['#text'] || track.artist?.name;
             return trackArtist && trackArtist.toLowerCase() === artist.toLowerCase();
         });
 
@@ -1070,7 +1125,7 @@ compareForm.addEventListener('submit', async (e) => {
                     if (comparisonMode === 'user') {
                         // Check if User 2 has also not listened
                         const user2ArtistTracks = cachedUser2Tracks.filter(track => {
-                            const trackArtist = track.artist['#text'] || track.artist.name;
+                            const trackArtist = track.artist?.['#text'] || track.artist?.name;
                             return trackArtist && trackArtist.toLowerCase() === artist.toLowerCase();
                         });
                         if (user2ArtistTracks.length === 0) {
@@ -1097,7 +1152,7 @@ compareForm.addEventListener('submit', async (e) => {
         if (comparisonMode === 'user') {
             // USER MODE: Build ranking from User 2's scrobbles
             const user2ArtistTracks = cachedUser2Tracks.filter(track => {
-                const trackArtist = track.artist['#text'] || track.artist.name;
+                const trackArtist = track.artist?.['#text'] || track.artist?.name;
                 return trackArtist && trackArtist.toLowerCase() === artist.toLowerCase();
             });
 
@@ -1438,9 +1493,11 @@ function resetSingleUser(userNumber, container) {
     errorDiv.classList.add('hidden');
 
     // Hide downstream UI (need to re-fetch scrobbles after user change)
+    loading.classList.add('hidden');
     stepLoadHistoryDiv.classList.add('hidden');
     step2Div.classList.add('hidden');
     stepTopArtistsDiv.classList.add('hidden');
+    stepJointArtists.classList.add('hidden');
     topArtistsGrid.innerHTML = '';
     results.classList.add('hidden');
     artistInfoDiv.classList.add('hidden');
@@ -1465,6 +1522,7 @@ function resetAllUsers() {
     stepLoadHistoryDiv.classList.add('hidden');
     step2Div.classList.add('hidden');
     stepTopArtistsDiv.classList.add('hidden');
+    stepJointArtists.classList.add('hidden');
     topArtistsGrid.innerHTML = '';
     userStepDiv.classList.remove('hidden');
     results.classList.add('hidden');
@@ -1551,11 +1609,8 @@ function showUserChangeForm(userNumber, container) {
 // Display skeleton placeholders for top artists while loading
 function displayTopArtistSkeletons(count = 10, username = null) {
     // Update header with username
-    const header = document.querySelector('.top-artists-header');
-    if (header) {
-        const displayName = username || validatedUsername || 'Your';
-        header.textContent = `Loading ${displayName}'s top 10...`;
-    }
+    const displayName = username || validatedUsername || 'Your';
+    personalArtistsHeading.textContent = `Loading ${displayName}'s top 10...`;
 
     // Manage swap button visibility
     const swapBtn = document.getElementById('swapTopArtistsBtn');
@@ -1583,11 +1638,8 @@ function displayTopArtistSkeletons(count = 10, username = null) {
 
 function displayTopArtists(artists, username = null) {
     // Update header with username
-    const header = document.querySelector('.top-artists-header');
-    if (header) {
-        const displayName = username || validatedUsername || 'Your';
-        header.textContent = `${displayName}'s top 10 artists — Pick one to compare`;
-    }
+    const displayName = username || validatedUsername || 'Your';
+    personalArtistsHeading.textContent = `${displayName}'s top 10 artists — Pick one to compare`;
 
     // Manage swap button visibility
     const swapBtn = document.getElementById('swapTopArtistsBtn');
@@ -1629,7 +1681,50 @@ function displayTopArtists(artists, username = null) {
     stepTopArtistsDiv.classList.remove('hidden');
 }
 
+function displayJointArtists() {
+    const artists = getJointTopArtists(cachedUserTracks, cachedUser2Tracks);
+    const cards = artists.map(artist => {
+        const card = document.createElement('button');
+        card.type = 'button';
+        card.className = 'top-artist-card joint-artist-card';
+
+        const name = document.createElement('span');
+        name.className = 'top-artist-name';
+        name.textContent = artist.name;
+
+        const stats = document.createElement('span');
+        stats.className = 'top-artist-info';
+        for (const [username, playcount, share] of [
+            [validatedUsername, artist.user1Playcount, artist.user1Share],
+            [validatedUsername2, artist.user2Playcount, artist.user2Share]
+        ]) {
+            const line = document.createElement('span');
+            line.className = 'top-artist-scrobbles';
+            const percent = share < 0.0001
+                ? `<${listeningShareFormat.format(0.0001)}`
+                : listeningShareFormat.format(share);
+            const playsLabel = playcount === 1 ? 'play' : 'plays';
+            line.textContent = `${username}: ${playcount.toLocaleString()} ${playsLabel} (${percent})`;
+            stats.append(line);
+        }
+
+        card.append(name, stats);
+        card.addEventListener('click', () => {
+            document.getElementById('artist').value = artist.name;
+            compareForm.requestSubmit();
+        });
+        return card;
+    });
+
+    jointArtistsGrid.replaceChildren(...cards);
+    noJointArtists.classList.toggle('hidden', cards.length > 0);
+    stepJointArtists.classList.remove('hidden');
+}
+
 function resetUI() {
+    loading.classList.add('hidden');
+    document.getElementById('singleUserProgress').classList.remove('hidden');
+    document.getElementById('dualUserProgress').classList.add('hidden');
     errorDiv.classList.add('hidden');
     userInfoContainer.classList.add('hidden');
     userInfoDiv.innerHTML = '';
@@ -1638,6 +1733,7 @@ function resetUI() {
     stepLoadHistoryDiv.classList.add('hidden');
     step2Div.classList.add('hidden');
     stepTopArtistsDiv.classList.add('hidden');
+    stepJointArtists.classList.add('hidden');
     results.classList.add('hidden');
     artistInfoDiv.classList.add('hidden');
     cachedArtistInfo.clear();

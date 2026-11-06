@@ -1219,6 +1219,27 @@ footer strong {
     color: var(--text-secondary);
 }
 
+.joint-artist-card {
+    min-width: 0;
+    font: inherit;
+    white-space: normal;
+}
+
+.joint-artist-card .top-artist-name {
+    white-space: normal;
+    overflow-wrap: anywhere;
+}
+
+.joint-artist-card .top-artist-scrobbles {
+    display: block;
+    overflow-wrap: anywhere;
+}
+
+.joint-artists-empty {
+    text-align: center;
+    color: var(--text-secondary);
+}
+
 /* Mobile: Single column layout */
 @media (max-width: 600px) {
     .top-artists-grid {
