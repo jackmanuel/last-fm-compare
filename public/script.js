@@ -23,6 +23,13 @@ const step2Div = document.getElementById('step2-compare');
 const userStepDiv = document.getElementById('step1-user');
 const stepTopArtistsDiv = document.getElementById('step-top-artists');
 const topArtistsGrid = document.getElementById('topArtistsGrid');
+const stepJointArtists = document.getElementById('step-joint-artists');
+const jointArtistsGrid = document.getElementById('jointArtistsGrid');
+const noJointArtists = document.getElementById('noJointArtists');
+const topArtistsSwitcher = document.getElementById('topArtistsSwitcher');
+const topArtistsViewButtons = topArtistsSwitcher.querySelectorAll('button');
+const personalArtistsHeading = stepTopArtistsDiv.querySelector('.top-artists-header');
+const listeningShareFormat = new Intl.NumberFormat(undefined, { style: 'percent', maximumFractionDigits: 2 });
 
 // Mode toggle elements
 const modeCommunityBtn = document.getElementById('modeCommunityBtn');
@@ -61,13 +68,12 @@ let cachedUser1Username = null;
 let cachedUser2Username = null;
 let globalComparisonData = null; // Store full comparison results
 let cachedArtistInfo = new Map(); // Cache artist info including images
+const pendingArtistInfo = new Map();
+let nextArtistInfoRequest = 0;
 let cachedArtistTopTracks = new Map(); // Cache artist.getTopTracks results
 
-// Top artists user switching (for user-to-user mode)
-let currentTopArtistsUser = 1; // Which user's top 10 is displayed
-let cachedUser1TopArtists = null; // Loaded top artists for user 1
-let cachedUser2TopArtists = null; // Pre-loaded top artists for user 2
-let user2TopArtistsLoading = false; // Is user 2's top artists loading in background?
+let topArtistsView = null;
+const personalTopArtists = new Map();
 
 // Mode Toggle Handlers
 function setComparisonMode(mode) {
@@ -103,10 +109,6 @@ function setComparisonMode(mode) {
 
     // Reset comparison results but NOT cached scrobble data
     globalComparisonData = null;
-    currentTopArtistsUser = 1;
-    cachedUser1TopArtists = null;
-    cachedUser2TopArtists = null;
-    user2TopArtistsLoading = false;
 
     // Note: cachedUserTracks and cachedUser2Tracks are intentionally NOT cleared
     // so that if the same username is entered, their scrobbles don't need to be re-fetched
@@ -115,10 +117,8 @@ function setComparisonMode(mode) {
 modeCommunityBtn.addEventListener('click', () => setComparisonMode('community'));
 modeUserBtn.addEventListener('click', () => setComparisonMode('user'));
 
-// Swap top artists button (user-to-user mode)
-const swapTopArtistsBtn = document.getElementById('swapTopArtistsBtn');
-if (swapTopArtistsBtn) {
-    swapTopArtistsBtn.addEventListener('click', () => switchTopArtistsUser());
+for (const button of topArtistsViewButtons) {
+    button.addEventListener('click', () => selectTopArtistsView(button.dataset.view));
 }
 
 
@@ -221,17 +221,7 @@ loadHistoryBtn.addEventListener('click', async () => {
         } else {
             // Both already cached, just show the UI
             step2Div.classList.remove('hidden');
-            // Use cached top artists if available
-            currentTopArtistsUser = 1;
-            if (cachedUser1TopArtists) {
-                displayTopArtists(cachedUser1TopArtists, validatedUsername);
-                stepTopArtistsDiv.classList.remove('hidden');
-            } else {
-                await loadTopArtistsForUser(1);
-            }
-            if (!cachedUser2TopArtists && !user2TopArtistsLoading) {
-                loadUser2TopArtistsInBackground();
-            }
+            showUserTopArtists();
         }
     } else {
         // Community mode: check if we have cached data for this user
@@ -399,8 +389,7 @@ async function fetchAllScrobbles(username = validatedUsername, setTracks = (trac
 
                     // Fetch artist info with rate limiting (5 requests per second = 200ms delay)
                     const artistsWithInfo = [];
-                    for (let i = 0; i < topArtists.length; i++) {
-                        const artist = topArtists[i];
+                    for (const artist of topArtists) {
                         try {
                             const artistInfo = await fetchArtistInfo(artist.name);
                             if (artistInfo) {
@@ -408,15 +397,7 @@ async function fetchAllScrobbles(username = validatedUsername, setTracks = (trac
                                 cachedArtistInfo.set(artist.name.toLowerCase(), artistInfo);
 
                                 // Get image from artist info
-                                let image = '/default_pfp.png';
-                                if (artistInfo.image) {
-                                    const imgObj = artistInfo.image.find(img => img.size === 'large')
-                                        || artistInfo.image.find(img => img.size === 'medium')
-                                        || artistInfo.image[0];
-                                    if (imgObj?.['#text'] && imgObj['#text'].trim() !== '') {
-                                        image = imgObj['#text'];
-                                    }
-                                }
+                                const image = getTopArtistImage(artistInfo);
                                 artistsWithInfo.push({
                                     name: artistInfo.name, // Use canonical name
                                     playcount: artist.playcount,
@@ -440,11 +421,6 @@ async function fetchAllScrobbles(username = validatedUsername, setTracks = (trac
                                 image: '/default_pfp.png'
                             });
                         }
-
-                        // Rate limit delay between artist info requests
-                        if (i < topArtists.length - 1) {
-                            await new Promise(resolve => setTimeout(resolve, RATE_LIMIT_DELAY_MS));
-                        }
                     }
 
                     displayTopArtists(artistsWithInfo);
@@ -466,6 +442,10 @@ async function fetchAllScrobbles(username = validatedUsername, setTracks = (trac
 }
 
 // Parallel fetch for user-to-user mode
+function isCurrentUserComparison(username1, username2) {
+    return comparisonMode === 'user' && validatedUsername === username1 && validatedUsername2 === username2;
+}
+
 async function fetchAllScrobblesParallel() {
     // Clear any previous error
     errorDiv.classList.add('hidden');
@@ -491,8 +471,10 @@ async function fetchAllScrobblesParallel() {
     dualUserProgress.classList.remove('hidden');
 
     // Set usernames as labels
-    user1ProgressLabel.textContent = validatedUsername;
-    user2ProgressLabel.textContent = validatedUsername2;
+    const username1 = validatedUsername;
+    const username2 = validatedUsername2;
+    user1ProgressLabel.textContent = username1;
+    user2ProgressLabel.textContent = username2;
 
     // Reset progress bars
     progressBar1.style.width = '0%';
@@ -503,17 +485,21 @@ async function fetchAllScrobblesParallel() {
     try {
         // Fetch both users in parallel with progress callbacks
         const results = await Promise.all([
-            fetchUserScrobblesWithProgress(validatedUsername, (current, total) => {
+            fetchUserScrobblesWithProgress(username1, (current, total) => {
+                if (!isCurrentUserComparison(username1, username2)) return;
                 const pct = Math.round((current / total) * 100);
                 progressBar1.style.width = `${pct}%`;
                 pagesText1.textContent = `${current}/${total}`;
             }),
-            fetchUserScrobblesWithProgress(validatedUsername2, (current, total) => {
+            fetchUserScrobblesWithProgress(username2, (current, total) => {
+                if (!isCurrentUserComparison(username1, username2)) return;
                 const pct = Math.round((current / total) * 100);
                 progressBar2.style.width = `${pct}%`;
                 pagesText2.textContent = `${current}/${total}`;
             })
         ]);
+
+        if (!isCurrentUserComparison(username1, username2)) return;
 
         cachedUserTracks = results[0];
         cachedUser2Tracks = results[1];
@@ -527,23 +513,13 @@ async function fetchAllScrobblesParallel() {
 
         loadingDiv.classList.add('hidden');
         step2Div.classList.remove('hidden');
+        showUserTopArtists();
 
         console.log(`✅ User 1 (${validatedUsername}): ${cachedUserTracks.length.toLocaleString()} scrobbles`);
         console.log(`✅ User 2 (${validatedUsername2}): ${cachedUser2Tracks.length.toLocaleString()} scrobbles`);
 
-        // Reset top artists state for user mode
-        currentTopArtistsUser = 1;
-        cachedUser1TopArtists = null;
-        cachedUser2TopArtists = null;
-        user2TopArtistsLoading = false;
-
-        // Load User 1's top artists first (with their username in header)
-        await loadTopArtistsForUser(1);
-
-        // After User 1's screen is ready, start loading User 2's top artists in background
-        loadUser2TopArtistsInBackground();
-
     } catch (err) {
+        if (!isCurrentUserComparison(username1, username2)) return;
         singleUserProgress.classList.remove('hidden');
         dualUserProgress.classList.add('hidden');
         loadingDiv.classList.add('hidden');
@@ -562,8 +538,10 @@ async function fetchSingleUserForParallelMode(userNumber) {
     const progressText = document.getElementById('progressText');
     const pagesText = document.getElementById('pagesText');
 
-    const username = userNumber === 1 ? validatedUsername : validatedUsername2;
-    const otherUsername = userNumber === 1 ? validatedUsername2 : validatedUsername;
+    const username1 = validatedUsername;
+    const username2 = validatedUsername2;
+    const username = userNumber === 1 ? username1 : username2;
+    const otherUsername = userNumber === 1 ? username2 : username1;
 
     loadingDiv.classList.remove('hidden');
     statusText.textContent = `Fetching ${username}'s scrobbles...`;
@@ -582,11 +560,14 @@ async function fetchSingleUserForParallelMode(userNumber) {
 
     try {
         const tracks = await fetchUserScrobblesWithProgress(username, (current, total) => {
+            if (!isCurrentUserComparison(username1, username2)) return;
             const pct = Math.round((current / total) * 100);
             progressBar.style.width = `${pct}%`;
             progressText.textContent = `${pct}%`;
             pagesText.textContent = `Page ${current} of ${total}`;
         });
+
+        if (!isCurrentUserComparison(username1, username2)) return;
 
         // Store the fetched tracks and track which username this data belongs to
         if (userNumber === 1) {
@@ -599,42 +580,12 @@ async function fetchSingleUserForParallelMode(userNumber) {
 
         loadingDiv.classList.add('hidden');
         step2Div.classList.remove('hidden');
+        showUserTopArtists();
 
         console.log(`✅ ${username}: ${tracks.length.toLocaleString()} scrobbles (${otherUsername} was cached)`);
 
-        // Only reset top artists for the user that was changed
-        if (userNumber === 1) {
-            cachedUser1TopArtists = null;
-        } else {
-            cachedUser2TopArtists = null;
-            user2TopArtistsLoading = false;
-        }
-
-        // Load top artists - use cached data for unchanged user
-        currentTopArtistsUser = 1;
-
-        if (userNumber === 1) {
-            // User 1 was changed, need to reload their top artists
-            // User 2's top artists should still be cached
-            await loadTopArtistsForUser(1);
-            // User 2's top artists are already cached, no need to reload
-            if (!cachedUser2TopArtists && !user2TopArtistsLoading) {
-                loadUser2TopArtistsInBackground();
-            }
-        } else {
-            // User 2 was changed
-            // User 1's top artists should still be cached, use them
-            if (cachedUser1TopArtists) {
-                displayTopArtists(cachedUser1TopArtists, validatedUsername);
-                stepTopArtistsDiv.classList.remove('hidden');
-            } else {
-                await loadTopArtistsForUser(1);
-            }
-            // Reload User 2's top artists in background
-            loadUser2TopArtistsInBackground();
-        }
-
     } catch (err) {
+        if (!isCurrentUserComparison(username1, username2)) return;
         loadingDiv.classList.add('hidden');
         stepLoadHistoryDiv.classList.remove('hidden');
         showError(`Failed to load ${username}'s history. Please try again.`);
@@ -723,25 +674,56 @@ async function fetchUserScrobblesWithProgress(username, onProgress) {
     return collectedTracks;
 }
 
-// Compute top N artists from scrobble data
-function getTopArtistsFromScrobbles(tracks, limit = 10) {
+function countArtistScrobbles(tracks, ignoreCase = false) {
     const artistCounts = new Map();
 
-    tracks.forEach(track => {
+    for (const track of tracks) {
         const artistName = track.artist?.['#text'] || track.artist?.name;
-        if (!artistName) return;
+        if (!artistName) continue;
 
-        const current = artistCounts.get(artistName) || 0;
-        artistCounts.set(artistName, current + 1);
-    });
+        const key = ignoreCase ? artistName.toLowerCase() : artistName;
+        const artist = artistCounts.get(key);
+        if (artist) {
+            artist.playcount++;
+        } else {
+            artistCounts.set(key, { name: artistName, playcount: 1 });
+        }
+    }
 
-    // Convert to array and sort by count descending
-    const sorted = Array.from(artistCounts.entries())
-        .map(([name, playcount]) => ({ name, playcount }))
+    return artistCounts;
+}
+
+function getTopArtistsFromScrobbles(tracks, limit = 10) {
+    return Array.from(countArtistScrobbles(tracks).values())
         .sort((a, b) => b.playcount - a.playcount)
         .slice(0, limit);
+}
 
-    return sorted;
+function getJointTopArtists(user1Tracks, user2Tracks) {
+    const user1Artists = countArtistScrobbles(user1Tracks, true);
+    const user2Artists = countArtistScrobbles(user2Tracks, true);
+    const sharedArtists = [];
+
+    for (const [key, user1Artist] of user1Artists) {
+        const user2Artist = user2Artists.get(key);
+        if (!user2Artist) continue;
+
+        const user1Share = user1Artist.playcount / user1Tracks.length;
+        const user2Share = user2Artist.playcount / user2Tracks.length;
+        const harmonicMean = (2 * user1Share * user2Share) / (user1Share + user2Share);
+        sharedArtists.push({
+            name: user1Artist.name,
+            score: harmonicMean,
+            user1Share,
+            user2Share,
+            user1Playcount: user1Artist.playcount,
+            user2Playcount: user2Artist.playcount
+        });
+    }
+
+    return sharedArtists
+        .sort((a, b) => b.score - a.score || a.name.localeCompare(b.name))
+        .slice(0, 10);
 }
 
 // Helper function to load top artists when using cached scrobbles
@@ -753,21 +735,12 @@ async function loadTopArtistsFromCache() {
             displayTopArtistSkeletons(topArtists.length);
 
             const artistsWithInfo = [];
-            for (let i = 0; i < topArtists.length; i++) {
-                const artist = topArtists[i];
+            for (const artist of topArtists) {
                 try {
                     const artistInfo = await fetchArtistInfo(artist.name);
                     if (artistInfo) {
                         cachedArtistInfo.set(artist.name.toLowerCase(), artistInfo);
-                        let image = '/default_pfp.png';
-                        if (artistInfo.image) {
-                            const imgObj = artistInfo.image.find(img => img.size === 'large')
-                                || artistInfo.image.find(img => img.size === 'medium')
-                                || artistInfo.image[0];
-                            if (imgObj?.['#text'] && imgObj['#text'].trim() !== '') {
-                                image = imgObj['#text'];
-                            }
-                        }
+                        const image = getTopArtistImage(artistInfo);
                         artistsWithInfo.push({
                             name: artistInfo.name,
                             playcount: artist.playcount,
@@ -791,10 +764,6 @@ async function loadTopArtistsFromCache() {
                         image: '/default_pfp.png'
                     });
                 }
-
-                if (i < topArtists.length - 1) {
-                    await new Promise(resolve => setTimeout(resolve, RATE_LIMIT_DELAY_MS));
-                }
             }
 
             displayTopArtists(artistsWithInfo);
@@ -804,211 +773,68 @@ async function loadTopArtistsFromCache() {
     }
 }
 
-// Load top artists for a specific user (used in user-to-user mode)
-async function loadTopArtistsForUser(userNum) {
-    const tracks = userNum === 1 ? cachedUserTracks : cachedUser2Tracks;
-    const username = userNum === 1 ? validatedUsername : validatedUsername2;
-
-    if (!tracks || tracks.length === 0) {
-        console.warn(`No tracks for user ${userNum}`);
-        return [];
-    }
-
-    const topArtists = getTopArtistsFromScrobbles(tracks, 10);
-    if (topArtists.length === 0) return [];
-
-    // Track which user was being viewed when we started loading
-    // so we can avoid switching the view if user manually changed it
-    const viewedUserAtStart = currentTopArtistsUser;
-    const isInitialLoad = viewedUserAtStart === userNum || (userNum === 1 && !cachedUser1TopArtists);
-
-    // Show skeleton placeholders with username in header (only if this user is currently being viewed)
-    if (isInitialLoad || currentTopArtistsUser === userNum) {
-        displayTopArtistSkeletons(topArtists.length, username);
-    }
-
-    const artistsWithInfo = [];
-    for (let i = 0; i < topArtists.length; i++) {
-        const artist = topArtists[i];
-        try {
-            const artistInfo = await fetchArtistInfo(artist.name);
-            if (artistInfo) {
-                cachedArtistInfo.set(artist.name.toLowerCase(), artistInfo);
-                let image = '/default_pfp.png';
-                if (artistInfo.image) {
-                    const imgObj = artistInfo.image.find(img => img.size === 'large')
-                        || artistInfo.image.find(img => img.size === 'medium')
-                        || artistInfo.image[0];
-                    if (imgObj?.['#text'] && imgObj['#text'].trim() !== '') {
-                        image = imgObj['#text'];
-                    }
-                }
-                artistsWithInfo.push({
-                    name: artistInfo.name,
-                    playcount: artist.playcount,
-                    url: artistInfo.url,
-                    image: image
-                });
-            } else {
-                artistsWithInfo.push({
-                    name: artist.name,
-                    playcount: artist.playcount,
-                    url: `https://www.last.fm/music/${encodeURIComponent(artist.name)}`,
-                    image: '/default_pfp.png'
-                });
-            }
-        } catch (e) {
-            console.warn(`Failed to fetch info for ${artist.name}:`, e);
-            artistsWithInfo.push({
-                name: artist.name,
-                playcount: artist.playcount,
-                url: `https://www.last.fm/music/${encodeURIComponent(artist.name)}`,
-                image: '/default_pfp.png'
-            });
-        }
-
-        if (i < topArtists.length - 1) {
-            await new Promise(resolve => setTimeout(resolve, RATE_LIMIT_DELAY_MS));
-        }
-    }
-
-    // Cache the results
-    if (userNum === 1) {
-        cachedUser1TopArtists = artistsWithInfo;
-    } else {
-        cachedUser2TopArtists = artistsWithInfo;
-    }
-
-    // Only update the display if the user hasn't switched to viewing another user's top 10
-    // This respects the user's manual selection via the swap button
-    if (currentTopArtistsUser === userNum || (isInitialLoad && currentTopArtistsUser === viewedUserAtStart)) {
-        currentTopArtistsUser = userNum;
-        displayTopArtists(artistsWithInfo, username);
-    } else {
-        console.log(`⏭️ User ${userNum} top artists loaded but not displayed (user switched to viewing user ${currentTopArtistsUser})`);
-    }
-    return artistsWithInfo;
+function showUserTopArtists() {
+    topArtistsViewButtons[1].textContent = validatedUsername;
+    topArtistsViewButtons[2].textContent = validatedUsername2;
+    topArtistsSwitcher.classList.remove('hidden');
+    displayJointArtists();
+    selectTopArtistsView('joint');
 }
 
-// Load User 2's top artists in background (won't run in parallel with User 1's API calls)
-function loadUser2TopArtistsInBackground() {
-    if (!cachedUser2Tracks || cachedUser2Tracks.length === 0) return;
-    if (cachedUser2TopArtists) return; // Already cached
-    if (user2TopArtistsLoading) return; // Already loading
-
-    user2TopArtistsLoading = true;
-    console.log('🔄 Loading User 2 top artists in background...');
-
-    // Use an async IIFE so we don't block
-    (async () => {
-        try {
-            const topArtists = getTopArtistsFromScrobbles(cachedUser2Tracks, 10);
-            if (topArtists.length === 0) {
-                user2TopArtistsLoading = false;
-                return;
-            }
-
-            const artistsWithInfo = [];
-            for (let i = 0; i < topArtists.length; i++) {
-                const artist = topArtists[i];
-                try {
-                    const artistInfo = await fetchArtistInfo(artist.name);
-                    if (artistInfo) {
-                        cachedArtistInfo.set(artist.name.toLowerCase(), artistInfo);
-                        let image = '/default_pfp.png';
-                        if (artistInfo.image) {
-                            const imgObj = artistInfo.image.find(img => img.size === 'large')
-                                || artistInfo.image.find(img => img.size === 'medium')
-                                || artistInfo.image[0];
-                            if (imgObj?.['#text'] && imgObj['#text'].trim() !== '') {
-                                image = imgObj['#text'];
-                            }
-                        }
-                        artistsWithInfo.push({
-                            name: artistInfo.name,
-                            playcount: artist.playcount,
-                            url: artistInfo.url,
-                            image: image
-                        });
-                    } else {
-                        artistsWithInfo.push({
-                            name: artist.name,
-                            playcount: artist.playcount,
-                            url: `https://www.last.fm/music/${encodeURIComponent(artist.name)}`,
-                            image: '/default_pfp.png'
-                        });
-                    }
-                } catch (e) {
-                    artistsWithInfo.push({
-                        name: artist.name,
-                        playcount: artist.playcount,
-                        url: `https://www.last.fm/music/${encodeURIComponent(artist.name)}`,
-                        image: '/default_pfp.png'
-                    });
-                }
-
-                if (i < topArtists.length - 1) {
-                    await new Promise(resolve => setTimeout(resolve, RATE_LIMIT_DELAY_MS));
-                }
-            }
-
-            cachedUser2TopArtists = artistsWithInfo;
-            user2TopArtistsLoading = false;
-            console.log('✅ User 2 top artists cached');
-
-            // Update swap button text if it exists
-            updateSwapButtonState();
-
-        } catch (err) {
-            console.warn('Failed to load User 2 top artists:', err);
-            user2TopArtistsLoading = false;
-        }
-    })();
+function resetTopArtists() {
+    topArtistsSwitcher.classList.add('hidden');
+    stepTopArtistsDiv.classList.add('hidden');
+    stepJointArtists.classList.add('hidden');
+    topArtistsView = null;
+    personalTopArtists.clear();
 }
 
-// Switch to viewing the other user's top 10
-async function switchTopArtistsUser() {
-    const targetUser = currentTopArtistsUser === 1 ? 2 : 1;
-    const targetUsername = targetUser === 1 ? validatedUsername : validatedUsername2;
+async function selectTopArtistsView(view) {
+    if (topArtistsView === view) return;
+    topArtistsView = view;
 
-    if (targetUser === 2) {
-        if (cachedUser2TopArtists) {
-            // Use cached data - instant switch
-            currentTopArtistsUser = 2;
-            displayTopArtists(cachedUser2TopArtists, targetUsername);
-        } else if (user2TopArtistsLoading) {
-            // Show loading skeleton while waiting
-            displayTopArtistSkeletons(10, targetUsername);
-            currentTopArtistsUser = 2;
-            // Poll until loading completes
-            const checkInterval = setInterval(() => {
-                if (!user2TopArtistsLoading && cachedUser2TopArtists) {
-                    clearInterval(checkInterval);
-                    displayTopArtists(cachedUser2TopArtists, targetUsername);
-                }
-            }, 200);
-        } else {
-            // Not cached and not loading - load now
-            await loadTopArtistsForUser(2);
-        }
-    } else {
-        // Switching back to User 1
-        if (cachedUser1TopArtists) {
-            currentTopArtistsUser = 1;
-            displayTopArtists(cachedUser1TopArtists, targetUsername);
-        } else {
-            await loadTopArtistsForUser(1);
-        }
+    for (const button of topArtistsViewButtons) {
+        button.setAttribute('aria-pressed', String(button.dataset.view === view));
+    }
+
+    const isJoint = view === 'joint';
+    stepJointArtists.classList.toggle('hidden', !isJoint);
+    stepTopArtistsDiv.classList.toggle('hidden', isJoint);
+    if (isJoint) return;
+
+    const username1 = validatedUsername;
+    const username2 = validatedUsername2;
+    const username = view === 'first' ? username1 : username2;
+    const tracks = view === 'first' ? cachedUserTracks : cachedUser2Tracks;
+    let request = personalTopArtists.get(view);
+
+    if (!request) {
+        const artists = getTopArtistsFromScrobbles(tracks, 10);
+        request = { count: artists.length, promise: loadPersonalTopArtists(artists, username1, username2) };
+        personalTopArtists.set(view, request);
+    }
+
+    displayTopArtistSkeletons(request.count, username);
+    const artists = await request.promise;
+    if (topArtistsView === view && personalTopArtists.get(view) === request) {
+        displayTopArtists(artists, username);
     }
 }
 
-// Update the swap button text
-function updateSwapButtonState() {
-    const swapBtn = document.getElementById('swapTopArtistsBtn');
-    if (!swapBtn) return;
-
-    const otherUser = currentTopArtistsUser === 1 ? validatedUsername2 : validatedUsername;
-    swapBtn.textContent = `See ${otherUser}'s top 10`;
+async function loadPersonalTopArtists(artists, username1, username2) {
+    const result = [];
+    for (const artist of artists) {
+        if (!isCurrentUserComparison(username1, username2)) break;
+        const info = await fetchArtistInfo(artist.name, username1);
+        if (!isCurrentUserComparison(username1, username2)) break;
+        if (info) cachedArtistInfo.set(artist.name.toLowerCase(), info);
+        result.push({
+            name: info?.name ?? artist.name,
+            playcount: artist.playcount,
+            image: getTopArtistImage(info)
+        });
+    }
+    return result;
 }
 
 // Step 3: Compare
@@ -1054,7 +880,7 @@ compareForm.addEventListener('submit', async (e) => {
 
         // 1. Filter user 1 tracks for the artist
         const userArtistTracks = cachedUserTracks.filter(track => {
-            const trackArtist = track.artist['#text'] || track.artist.name;
+            const trackArtist = track.artist?.['#text'] || track.artist?.name;
             return trackArtist && trackArtist.toLowerCase() === artist.toLowerCase();
         });
 
@@ -1070,7 +896,7 @@ compareForm.addEventListener('submit', async (e) => {
                     if (comparisonMode === 'user') {
                         // Check if User 2 has also not listened
                         const user2ArtistTracks = cachedUser2Tracks.filter(track => {
-                            const trackArtist = track.artist['#text'] || track.artist.name;
+                            const trackArtist = track.artist?.['#text'] || track.artist?.name;
                             return trackArtist && trackArtist.toLowerCase() === artist.toLowerCase();
                         });
                         if (user2ArtistTracks.length === 0) {
@@ -1097,7 +923,7 @@ compareForm.addEventListener('submit', async (e) => {
         if (comparisonMode === 'user') {
             // USER MODE: Build ranking from User 2's scrobbles
             const user2ArtistTracks = cachedUser2Tracks.filter(track => {
-                const trackArtist = track.artist['#text'] || track.artist.name;
+                const trackArtist = track.artist?.['#text'] || track.artist?.name;
                 return trackArtist && trackArtist.toLowerCase() === artist.toLowerCase();
             });
 
@@ -1261,14 +1087,32 @@ compareForm.addEventListener('submit', async (e) => {
     }
 });
 
-async function fetchArtistInfo(artist) {
-    try {
-        const data = await getArtistInfo(artist, validatedUsername);
-        return data.artist;
-    } catch (e) {
-        console.warn("Failed to fetch artist info", e);
-        return null; // Fail silently, just don't show info
-    }
+function fetchArtistInfo(artist, username = validatedUsername) {
+    const key = JSON.stringify([username, artist.toLowerCase()]);
+    if (pendingArtistInfo.has(key)) return pendingArtistInfo.get(key);
+
+    const now = Date.now();
+    const delay = Math.max(0, nextArtistInfoRequest - now);
+    nextArtistInfoRequest = now + delay + RATE_LIMIT_DELAY_MS;
+
+    const request = new Promise(resolve => setTimeout(resolve, delay))
+        .then(() => getArtistInfo(artist, username))
+        .then(data => data.artist)
+        .catch(error => {
+            console.warn('Failed to fetch artist info', error);
+            return null;
+        })
+        .finally(() => pendingArtistInfo.delete(key));
+    pendingArtistInfo.set(key, request);
+    return request;
+}
+
+function getTopArtistImage(artistInfo) {
+    const images = Array.isArray(artistInfo?.image) ? artistInfo.image : [];
+    const image = images.find(item => item.size === 'large')
+        || images.find(item => item.size === 'medium')
+        || images[0];
+    return image?.['#text']?.trim() || '/default_pfp.png';
 }
 
 function displayArtistInfo(artistData, user2ScrobbleCount = null) {
@@ -1427,25 +1271,22 @@ function resetSingleUser(userNumber, container) {
     if (userNumber === 1) {
         validatedUsername = null;
         cachedUserTracks = [];
-        cachedUser1TopArtists = null;
     } else {
         validatedUsername2 = null;
         cachedUser2Tracks = [];
-        cachedUser2TopArtists = null;
-        user2TopArtistsLoading = false;
     }
 
     errorDiv.classList.add('hidden');
 
     // Hide downstream UI (need to re-fetch scrobbles after user change)
+    loading.classList.add('hidden');
     stepLoadHistoryDiv.classList.add('hidden');
     step2Div.classList.add('hidden');
-    stepTopArtistsDiv.classList.add('hidden');
+    resetTopArtists();
     topArtistsGrid.innerHTML = '';
     results.classList.add('hidden');
     artistInfoDiv.classList.add('hidden');
     globalComparisonData = null;
-    currentTopArtistsUser = 1;
 
     // Show inline form for changing this user
     showUserChangeForm(userNumber, container);
@@ -1464,17 +1305,13 @@ function resetAllUsers() {
     userInfo2Div.classList.add('hidden');
     stepLoadHistoryDiv.classList.add('hidden');
     step2Div.classList.add('hidden');
-    stepTopArtistsDiv.classList.add('hidden');
+    resetTopArtists();
     topArtistsGrid.innerHTML = '';
     userStepDiv.classList.remove('hidden');
     results.classList.add('hidden');
     artistInfoDiv.classList.add('hidden');
     cachedArtistInfo.clear();
     cachedArtistTopTracks.clear();
-    currentTopArtistsUser = 1;
-    cachedUser1TopArtists = null;
-    cachedUser2TopArtists = null;
-    user2TopArtistsLoading = false;
     globalComparisonData = null;
 }
 
@@ -1551,23 +1388,8 @@ function showUserChangeForm(userNumber, container) {
 // Display skeleton placeholders for top artists while loading
 function displayTopArtistSkeletons(count = 10, username = null) {
     // Update header with username
-    const header = document.querySelector('.top-artists-header');
-    if (header) {
-        const displayName = username || validatedUsername || 'Your';
-        header.textContent = `Loading ${displayName}'s top 10...`;
-    }
-
-    // Manage swap button visibility
-    const swapBtn = document.getElementById('swapTopArtistsBtn');
-    if (swapBtn) {
-        if (comparisonMode === 'user' && validatedUsername2) {
-            const otherUser = currentTopArtistsUser === 1 ? validatedUsername2 : validatedUsername;
-            swapBtn.textContent = `See ${otherUser}'s top 10`;
-            swapBtn.classList.remove('hidden');
-        } else {
-            swapBtn.classList.add('hidden');
-        }
-    }
+    const displayName = username || validatedUsername || 'Your';
+    personalArtistsHeading.textContent = `Loading ${displayName}'s top 10...`;
 
     topArtistsGrid.innerHTML = Array(count).fill(0).map(() => `
         <div class="top-artist-card skeleton-card">
@@ -1583,26 +1405,18 @@ function displayTopArtistSkeletons(count = 10, username = null) {
 
 function displayTopArtists(artists, username = null) {
     // Update header with username
-    const header = document.querySelector('.top-artists-header');
-    if (header) {
-        const displayName = username || validatedUsername || 'Your';
-        header.textContent = `${displayName}'s top 10 artists — Pick one to compare`;
-    }
-
-    // Manage swap button visibility
-    const swapBtn = document.getElementById('swapTopArtistsBtn');
-    if (swapBtn) {
-        if (comparisonMode === 'user' && validatedUsername2) {
-            const otherUser = currentTopArtistsUser === 1 ? validatedUsername2 : validatedUsername;
-            swapBtn.textContent = `See ${otherUser}'s top 10`;
-            swapBtn.classList.remove('hidden');
-        } else {
-            swapBtn.classList.add('hidden');
-        }
-    }
+    const displayName = username || validatedUsername || 'Your';
+    personalArtistsHeading.textContent = `${displayName}'s top 10 artists — Pick one to compare`;
 
     if (!artists || artists.length === 0) {
-        stepTopArtistsDiv.classList.add('hidden');
+        if (comparisonMode === 'user') {
+            const message = document.createElement('p');
+            message.className = 'joint-artists-empty';
+            message.textContent = 'No artists in the loaded history.';
+            topArtistsGrid.replaceChildren(message);
+        } else {
+            stepTopArtistsDiv.classList.add('hidden');
+        }
         return;
     }
 
@@ -1629,7 +1443,100 @@ function displayTopArtists(artists, username = null) {
     stepTopArtistsDiv.classList.remove('hidden');
 }
 
+function displayJointArtists() {
+    const artists = getJointTopArtists(cachedUserTracks, cachedUser2Tracks);
+    const username1 = validatedUsername;
+    const username2 = validatedUsername2;
+    const portraits = [];
+    const cards = artists.map((artist, index) => {
+        const wrapper = document.createElement('div');
+        wrapper.className = 'joint-artist';
+
+        const card = document.createElement('button');
+        card.type = 'button';
+        card.className = 'top-artist-card joint-artist-card';
+        card.setAttribute('aria-label', `Compare ${artist.name}`);
+
+        const front = document.createElement('span');
+        front.className = 'joint-artist-front';
+        const image = document.createElement('img');
+        image.className = 'top-artist-image';
+        image.alt = '';
+        image.src = '/default_pfp.png';
+        image.addEventListener('error', () => { image.src = '/default_pfp.png'; }, { once: true });
+        portraits.push({ name: artist.name, image });
+
+        const name = document.createElement('span');
+        name.className = 'top-artist-name';
+        name.textContent = artist.name;
+        front.append(image, name);
+
+        const stats = document.createElement('span');
+        stats.className = 'joint-artist-stats';
+        stats.id = `jointArtistStats-${index}`;
+        card.setAttribute('aria-describedby', stats.id);
+        for (const [username, playcount, share] of [
+            [username1, artist.user1Playcount, artist.user1Share],
+            [username2, artist.user2Playcount, artist.user2Share]
+        ]) {
+            const listener = document.createElement('span');
+            listener.className = 'joint-artist-listener';
+            const label = document.createElement('span');
+            label.className = 'joint-artist-listener-name';
+            label.textContent = username;
+
+            const percent = share < 0.0001
+                ? `<${listeningShareFormat.format(0.0001)}`
+                : listeningShareFormat.format(share);
+            const playsLabel = playcount === 1 ? 'play' : 'plays';
+            const line = document.createElement('span');
+            line.className = 'top-artist-scrobbles';
+            const shareLabel = document.createElement('strong');
+            shareLabel.textContent = percent;
+            line.append(`${playcount.toLocaleString()} ${playsLabel} · `, shareLabel);
+            listener.append(label, line);
+            stats.append(listener);
+        }
+
+        card.append(front, stats);
+        card.addEventListener('click', () => {
+            document.getElementById('artist').value = artist.name;
+            compareForm.requestSubmit();
+        });
+        const toggle = document.createElement('button');
+        toggle.type = 'button';
+        toggle.className = 'swap-user-btn joint-artist-toggle';
+        toggle.textContent = 'Stats';
+        toggle.setAttribute('aria-label', `Listening stats for ${artist.name}`);
+        toggle.setAttribute('aria-controls', stats.id);
+        toggle.setAttribute('aria-expanded', 'false');
+        toggle.addEventListener('click', () => {
+            const expanded = wrapper.classList.toggle('show-stats');
+            toggle.setAttribute('aria-expanded', String(expanded));
+            toggle.textContent = expanded ? 'Hide' : 'Stats';
+        });
+
+        wrapper.append(card, toggle);
+        return wrapper;
+    });
+
+    jointArtistsGrid.replaceChildren(...cards);
+    noJointArtists.classList.toggle('hidden', cards.length > 0);
+    loadJointArtistImages(portraits, username1, username2);
+}
+
+async function loadJointArtistImages(portraits, username1, username2) {
+    for (const { name, image } of portraits) {
+        if (!image.isConnected || !isCurrentUserComparison(username1, username2)) return;
+        const info = cachedArtistInfo.get(name.toLowerCase()) ?? await fetchArtistInfo(name, username1);
+        image.src = getTopArtistImage(info);
+    }
+}
+
 function resetUI() {
+    loading.classList.add('hidden');
+    document.getElementById('singleUserProgress').classList.remove('hidden');
+    document.getElementById('dualUserProgress').classList.add('hidden');
     errorDiv.classList.add('hidden');
     userInfoContainer.classList.add('hidden');
     userInfoDiv.innerHTML = '';
@@ -1637,7 +1544,7 @@ function resetUI() {
     userInfo2Div.classList.add('hidden');
     stepLoadHistoryDiv.classList.add('hidden');
     step2Div.classList.add('hidden');
-    stepTopArtistsDiv.classList.add('hidden');
+    resetTopArtists();
     results.classList.add('hidden');
     artistInfoDiv.classList.add('hidden');
     cachedArtistInfo.clear();

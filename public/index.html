@@ -77,11 +77,23 @@
                 <p class="hint-text">This will fetch all of your scrobbles. This may take a few minutes.</p>
             </div>
 
+            <div id="topArtistsSwitcher" class="mode-toggle top-artists-switcher hidden" role="group" aria-label="Top artists list">
+                <button type="button" class="mode-btn" data-view="joint" aria-controls="step-joint-artists" aria-pressed="true">Joint</button>
+                <button type="button" class="mode-btn" data-view="first" aria-controls="step-top-artists" aria-pressed="false">User 1</button>
+                <button type="button" class="mode-btn" data-view="second" aria-controls="step-top-artists" aria-pressed="false">User 2</button>
+            </div>
+
+            <section id="step-joint-artists" class="hidden" aria-labelledby="jointArtistsHeading">
+                <div class="top-artists-header-row">
+                    <h3 id="jointArtistsHeading" class="top-artists-header">Joint Top 10 Artists</h3>
+                </div>
+                <p id="noJointArtists" class="joint-artists-empty hidden">No shared artists in the loaded histories.</p>
+                <div id="jointArtistsGrid" class="top-artists-grid"></div>
+            </section>
+
             <div id="step-top-artists" class="hidden">
                 <div class="top-artists-header-row">
                     <h3 class="top-artists-header">Your Top 10 Artists — Pick one to compare</h3>
-                    <button type="button" id="swapTopArtistsBtn" class="swap-user-btn hidden">See other user's top
-                        10</button>
                 </div>
                 <div id="topArtistsGrid" class="top-artists-grid">
                     <!-- Artist cards injected here -->
